@@ -1,0 +1,8 @@
+/* Nasconde schede, barra degli indirizzi e barre degli strumenti:
+   resta solo la barra del titolo di sistema e il contenuto della pagina. */
+#navigator-toolbox,
+#sidebar-box,
+#sidebar-main,
+#statuspanel {
+  visibility: collapse !important;
+}
