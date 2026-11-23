@@ -1,0 +1,217 @@
+"""Interfaccia a riga di comando: `stream-launcher <comando>`."""
+from __future__ import annotations
+
+import argparse
+import getpass
+import sys
+
+from . import core
+from .core import LauncherError
+
+
+def cmd_list(_args) -> None:
+    services = core.list_services()
+    if not services:
+        print("Nessun servizio. Aggiungine uno con: stream-launcher add <modello>")
+        return
+    w_id = max(len(s.id) for s in services) + 2
+    w_name = max(len(s.name) for s in services) + 2
+    for svc in services:
+        print(f"{svc.id:<{w_id}}{svc.name:<{w_name}}{svc.proxy.describe()}")
+
+
+def cmd_templates(_args) -> None:
+    for t in core.list_templates():
+        print(f"{t.id:<22} {t.name:<24} {t.url}")
+
+
+def cmd_run(args) -> None:
+    core.launch(core.load_service(args.id))
+
+
+def cmd_settings(args) -> None:
+    from . import gui  # GTK si carica solo quando serve
+
+    sys.exit(gui.main(args.id))
+
+
+def cmd_tray(_args) -> None:
+    from . import tray  # GTK3 + AppIndicator, processo separato dalla GUI GTK4
+
+    sys.exit(tray.main())
+
+
+def cmd_add(args) -> None:
+    svc = core.add_from_template(args.template, name=args.name, new_id=args.id)
+    print(f"Aggiunto «{svc.name}» (id {svc.id}).")
+
+
+def cmd_duplicate(args) -> None:
+    svc = core.duplicate_service(args.source, args.name, new_id=args.id, copy_profile=args.copy_profile)
+    print(f"Creato «{svc.name}» (id {svc.id}) da «{args.source}».")
+
+
+def cmd_rename(args) -> None:
+    svc = core.load_service(args.id)
+    svc.name = args.name
+    core.save_service(svc)
+    core.refresh_desktop_entry(svc, icon=False)
+    print(f"Rinominato in «{svc.name}».")
+
+
+def cmd_remove(args) -> None:
+    core.remove_service(args.id, keep_profile=args.keep_profile)
+    print(f"Rimosso «{args.id}».")
+
+
+def cmd_proxy(args) -> None:
+    svc = core.load_service(args.id)
+    if args.off:
+        svc.proxy = core.Proxy()
+    else:
+        if not (args.type and args.host and args.port):
+            raise LauncherError("Servono --type, --host e --port (oppure --off).")
+        password = args.password
+        if args.user and password is None:
+            password = getpass.getpass(f"Password per {args.user}@{args.host}: ")
+        svc.proxy = core.Proxy(args.type, args.host, args.port, args.user or "", password or "")
+    core.save_service(svc)
+    core.refresh_desktop_entry(svc, icon=False)
+    print(f"{svc.name}: {svc.proxy.describe()}. Effettivo dal prossimo avvio.")
+
+
+def cmd_useragent(args) -> None:
+    svc = core.load_service(args.id)
+    svc.user_agent = "" if args.value == "default" else args.value
+    core.save_service(svc)
+    print(f"{svc.name}: user agent «{svc.user_agent or 'predefinito'}».")
+
+
+def cmd_addon(args) -> None:
+    svc = core.load_service(args.id)
+    if args.action == "list":
+        for spec in svc.addons:
+            print(spec)
+        return
+    if args.action == "update":
+        warnings = core.sync_addons(svc, refresh=True)
+        print("Addon aggiornati." if not warnings else "Aggiornati, con avvisi.")
+        return
+    if not args.spec:
+        raise LauncherError("Indica l'addon: amo:<nome>, chrome:<id> o un percorso.")
+    if args.action == "add":
+        core.resolve_addon(args.spec)  # verifica subito che esista e sia valido
+        if args.spec not in svc.addons:
+            svc.addons.append(args.spec)
+    elif args.spec in svc.addons:
+        svc.addons.remove(args.spec)
+    else:
+        raise LauncherError(f"«{args.spec}» non è tra gli addon di {svc.name}.")
+    core.save_service(svc)
+    print(f"{svc.name}: {len(svc.addons)} addon. Effettivo dal prossimo avvio.")
+
+
+def cmd_runtime(args) -> None:
+    if args.action == "install":
+        version = core.install_runtime(args.channel)
+        print(f"Runtime Firefox {version} ({core.runtime_channel()}) installato.")
+    else:
+        state = core.runtime_version() or "non installato"
+        print(f"Runtime: {state} — canale {core.runtime_channel()} — {core.RUNTIME_DIR}")
+
+
+def cmd_init(args) -> None:
+    """Usato da install.sh: runtime, servizi predefiniti, voci di menu."""
+    if args.update_runtime or not core.runtime_installed():
+        version = core.install_runtime(args.channel)
+        print(f"Runtime Firefox {version} ({core.runtime_channel()}) installato.")
+    else:
+        core.install_policies()
+    for svc in core.seed_default_services():
+        print(f"Servizio predefinito: {svc.name}")
+    core.sync_desktop_entries()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="stream-launcher", description="Servizi di streaming su runtime Firefox portatile.")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("list", help="elenca i servizi").set_defaults(func=cmd_list)
+    sub.add_parser("templates", help="elenca i modelli disponibili").set_defaults(func=cmd_templates)
+
+    s = sub.add_parser("run", help="avvia un servizio")
+    s.add_argument("id")
+    s.set_defaults(func=cmd_run)
+
+    s = sub.add_parser("settings", help="apre la finestra delle impostazioni")
+    s.add_argument("id", nargs="?")
+    s.set_defaults(func=cmd_settings)
+
+    sub.add_parser("tray", help="icona nella tray con i servizi").set_defaults(func=cmd_tray)
+
+    s = sub.add_parser("add", help="aggiunge un servizio da un modello")
+    s.add_argument("template")
+    s.add_argument("--name")
+    s.add_argument("--id")
+    s.set_defaults(func=cmd_add)
+
+    s = sub.add_parser("duplicate", help="duplica un servizio con un nuovo nome")
+    s.add_argument("source")
+    s.add_argument("--name", required=True)
+    s.add_argument("--id", help="predefinito: ricavato dal nome")
+    s.add_argument("--copy-profile", action="store_true", help="copia anche login e cookie")
+    s.set_defaults(func=cmd_duplicate)
+
+    s = sub.add_parser("rename", help="cambia il nome mostrato")
+    s.add_argument("id")
+    s.add_argument("name")
+    s.set_defaults(func=cmd_rename)
+
+    s = sub.add_parser("remove", help="elimina un servizio")
+    s.add_argument("id")
+    s.add_argument("--keep-profile", action="store_true")
+    s.set_defaults(func=cmd_remove)
+
+    s = sub.add_parser("proxy", help="imposta o toglie il proxy di un servizio")
+    s.add_argument("id")
+    s.add_argument("--off", action="store_true")
+    s.add_argument("--type", choices=[t for t in core.PROXY_TYPES if t != "none"])
+    s.add_argument("--host")
+    s.add_argument("--port", type=int)
+    s.add_argument("--user")
+    s.add_argument("--password", help="se omessa con --user viene chiesta")
+    s.set_defaults(func=cmd_proxy)
+
+    s = sub.add_parser("useragent", help="user agent: default, windows o stringa personalizzata")
+    s.add_argument("id")
+    s.add_argument("value")
+    s.set_defaults(func=cmd_useragent)
+
+    s = sub.add_parser("addon", help="gestisce gli addon (amo:<nome>, chrome:<id>, percorso)")
+    s.add_argument("id")
+    s.add_argument("action", choices=["list", "add", "remove", "update"])
+    s.add_argument("spec", nargs="?")
+    s.set_defaults(func=cmd_addon)
+
+    s = sub.add_parser("runtime", help="runtime Firefox condiviso")
+    s.add_argument("action", choices=["install", "info"])
+    s.add_argument("--channel", choices=sorted(core.RUNTIME_URLS))
+    s.set_defaults(func=cmd_runtime)
+
+    s = sub.add_parser("init", help="prima installazione (usato da install.sh)")
+    s.add_argument("--update-runtime", action="store_true")
+    s.add_argument("--channel", choices=sorted(core.RUNTIME_URLS))
+    s.set_defaults(func=cmd_init)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        args.func(args)
+    except LauncherError as e:
+        print(f"Errore: {e}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+    return 0

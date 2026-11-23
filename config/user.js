@@ -1,12 +1,12 @@
-// Preferenze del profilo dedicato al client Netflix.
-// Vengono riapplicate a ogni avvio.
+// Preferenze comuni a tutti i profili dei servizi.
+// stream-launcher le riscrive a ogni avvio e aggiunge in coda quelle del servizio
+// (pagina iniziale, user agent, proxy).
 
 // --- Pagina iniziale ---
-user_pref("browser.startup.homepage", "https://www.netflix.com/browse");
 user_pref("browser.startup.page", 1);
 user_pref("browser.newtabpage.enabled", false);
 
-// --- DRM Widevine (necessario per Netflix) ---
+// --- DRM Widevine (necessario ai servizi di streaming) ---
 user_pref("media.eme.enabled", true);
 user_pref("media.gmp-widevinecdm.enabled", true);
 user_pref("media.gmp-widevinecdm.visible", true);
@@ -38,3 +38,9 @@ user_pref("trailhead.firstrun.didSeeAboutWelcome", true);
 user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);
 user_pref("browser.translations.automaticallyPopup", false);
 user_pref("signon.rememberSignons", true);
+
+// --- Addon gestiti dal launcher (cartella extensions del profilo) ---
+// Attivati senza conferma; le firme si possono disattivare solo sul runtime ESR.
+user_pref("extensions.autoDisableScopes", 0);
+user_pref("extensions.enabledScopes", 15);
+user_pref("xpinstall.signatures.required", false);
