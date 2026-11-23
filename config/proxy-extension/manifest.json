@@ -1,0 +1,12 @@
+{
+  "manifest_version": 2,
+  "name": "Stream Launcher Proxy",
+  "version": "1.0",
+  "description": "Proxy del servizio con credenziali (generata da stream-launcher).",
+  "browser_specific_settings": {
+    "gecko": { "id": "proxy@stream-launcher.local" }
+  },
+  "permissions": ["proxy", "webRequest", "webRequestBlocking", "<all_urls>"],
+  "incognito": "spanning",
+  "background": { "scripts": ["config.js", "background.js"] }
+}

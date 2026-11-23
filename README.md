@@ -1,42 +1,103 @@
-# netflix_client
+# Stream Launcher
 
-Client Netflix desktop per Linux basato sul motore di Firefox (Gecko), senza
-bisogno di avere Firefox installato.
+Launcher per servizi di streaming su Linux (Netflix, Disney+, Prime Video,
+Paramount+, …) basato sul motore di Firefox (Gecko), senza bisogno di avere
+Firefox installato.
 
 Su Chrome/PWA con GPU NVIDIA e Wayland i video DRM restano neri (o, togliendo
 l'accelerazione, la qualità crolla); Firefox invece li riproduce correttamente.
-Questo progetto usa un **Firefox portatile e isolato** come runtime: profilo
-dedicato, nessuna scheda o barra, finestra e icona proprie.
+Il progetto usa un **Firefox ESR portatile e isolato** come runtime condiviso e
+dà a ogni servizio:
+
+- un **profilo separato** (login, cookie, impostazioni indipendenti);
+- un **proxy** facoltativo (HTTP, HTTPS, SOCKS5, SOCKS4, con o senza credenziali);
+- **addon** da addons.mozilla.org, dal Chrome Web Store o da file locali;
+- uno **user agent** a scelta (predefinito, Firefox su Windows, personalizzato);
+- la sua voce nel menu applicazioni e nella **tray**.
+
+I servizi si possono **duplicare con un nome a scelta**, ad esempio Paramount+
+Italia e Paramount+ USA (con proxy USA), o due account dello stesso servizio.
 
 ## Installazione
 
 ```bash
-./install.sh              # scarica il runtime e registra l'app
-./install.sh --update     # riscarica il runtime Firefox
-./install.sh --uninstall  # rimuove tutto
+./install.sh              # installa l'app, scarica il runtime, crea i servizi predefiniti
+./install.sh --update     # riscarica anche il runtime Firefox
+./install.sh --uninstall  # rimuove app, runtime, profili, voci di menu e tray
 ```
 
-Poi avvia **Netflix** dal menu applicazioni oppure `netflix-client` da terminale.
+Requisiti: `python3`, `python-gobject` + `libadwaita` (finestra impostazioni),
+`libayatana-appindicator` e, su GNOME, l'estensione AppIndicator (tray).
 
-Il runtime e il profilo stanno in `~/.local/share/netflix-client/`.
+## Uso
 
-## Struttura
+- **Tray**: un clic sull'icona elenca i servizi; «Impostazioni…» apre la gestione.
+  La tray parte da sola al login.
+- **Menu applicazioni**: ogni servizio ha la sua voce; tasto destro → *Impostazioni*.
+- **Stream Launcher** (menu) apre la finestra impostazioni: aggiungi da modello (+),
+  modifica nome, indirizzo, user agent, proxy e addon, duplica o elimina.
+
+Da terminale:
+
+```bash
+stream-launcher list
+stream-launcher run paramountplus-us
+stream-launcher duplicate paramountplus-us --name "Paramount+ USA 2" [--copy-profile]
+stream-launcher rename netflix "Netflix famiglia"
+stream-launcher proxy paramountplus-us --type socks5 --host 1.2.3.4 --port 1080 --user io
+stream-launcher proxy paramountplus-us --off
+stream-launcher useragent primevideo windows        # default | windows | "stringa"
+stream-launcher addon netflix add amo:ublock-origin
+stream-launcher addon netflix add chrome:<id-di-32-lettere>
+stream-launcher addon netflix add ~/addon/mio.crx    # anche .xpi o cartella
+stream-launcher addon netflix update                 # riscarica gli addon
+stream-launcher runtime info | install [--channel esr|release]
+```
+
+Le modifiche valgono dal prossimo avvio del servizio.
+
+## Dove stanno i file
+
+| Percorso | Contenuto |
+|---|---|
+| `~/.config/stream-launcher/services/<id>.ini` | configurazione del servizio (permessi 600: contiene la password del proxy) |
+| `~/.local/share/stream-launcher/firefox/` | runtime Firefox ESR condiviso |
+| `~/.local/share/stream-launcher/profiles/<id>/` | profilo Firefox del servizio |
+| `~/.local/share/stream-launcher/app/` | copia installata dell'applicazione |
+| `~/.local/share/stream-launcher/launch.log` | log degli avvii fatti da tray/impostazioni |
+
+## Struttura del repo
 
 | File | Ruolo |
 |---|---|
-| `install.sh` | scarica il runtime, copia la configurazione, crea launcher e voce di menu |
-| `netflix-client` | launcher (Wayland nativo, `app_id` dedicato) |
-| `config/user.js` | preferenze: DRM Widevine, WebRender, homepage, niente onboarding |
-| `config/chrome/userChrome.css` | nasconde schede e barre |
+| `install.sh` | copia l'app, symlink in `~/.local/bin`, `init`, autostart della tray |
+| `bin/stream-launcher` | punto d'ingresso (CLI) |
+| `stream_launcher/core.py` | servizi, runtime, profili, proxy, addon, voci di menu |
+| `stream_launcher/cli.py` | comandi da terminale |
+| `stream_launcher/gui.py` | finestra impostazioni (GTK4 + libadwaita) |
+| `stream_launcher/tray.py` | icona nella tray (GTK3 + AyatanaAppIndicator, processo separato) |
+| `templates/*.ini` | modelli dei servizi predefiniti |
+| `config/user.js` | preferenze comuni dei profili (DRM, WebRender, addon) |
 | `config/policies.json` | policy del runtime: telemetria off, DRM sempre attivo |
-| `config/icon.svg` | icona generica di riserva |
+| `config/chrome/userChrome.css` | nasconde schede e barre |
+| `config/proxy-extension/` | estensione generata per proxy con credenziali / HTTPS |
 
-L'icona Netflix (marchio registrato) non è inclusa nel repo: viene scaricata
-dai server Netflix durante l'installazione.
+Le icone dei servizi (marchi registrati) non sono nel repo: vengono scaricate
+all'installazione dai siti dei servizi.
 
 ## Note
 
-- Al primo avvio Firefox scarica Widevine in background: se il video non parte
-  subito, attendi un minuto e riapri.
-- Su Linux Netflix limita lo streaming a 720p (Widevine L3).
+- **Qualità**: su Linux c'è solo Widevine L3, quindi niente 4K/HDR; il tetto
+  (di solito 720p–1080p) lo decide il servizio. Lo user agent «Firefox su
+  Windows» a volte alza la risoluzione concessa: prova servizio per servizio.
+- **Proxy**: se il proxy non risponde il traffico si blocca, non esce in chiaro.
+  DNS e WebRTC passano dal proxy. Le credenziali e il tipo HTTPS usano
+  un'estensione interna e richiedono il runtime ESR.
+- **Addon Chrome**: vengono convertiti al volo (id Gecko, service worker →
+  background script). Le API Chrome più esotiche possono non funzionare in Firefox.
+  Gli addon non firmati funzionano solo con il runtime ESR (predefinito).
+- **Duplicati**: senza `--copy-profile` (o la casella nella finestra) il
+  duplicato parte senza login.
+- Al primo avvio di un servizio Firefox scarica Widevine in background: se il
+  video non parte subito, attendi un minuto e riapri.
 - Indietro: **Alt+←**. Schermo intero: **F11**.
