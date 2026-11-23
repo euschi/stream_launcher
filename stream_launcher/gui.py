@@ -192,7 +192,47 @@ class ServiceEditor(Adw.NavigationPage):
         g.add(self.proxy_type)
         for row in self.proxy_rows:
             g.add(row)
+
+        self.test_row = Adw.ActionRow(title="Prova connessione", subtitle="Verifica IP e paese di uscita e che il servizio risponda")
+        self.test_row.set_use_markup(False)
+        self.test_row.set_subtitle_lines(3)
+        self.test_spinner = Gtk.Spinner(visible=False)
+        self.test_btn = Gtk.Button(label="Prova", valign=Gtk.Align.CENTER)
+        self.test_btn.connect("clicked", lambda _b: self._test_proxy())
+        self.test_row.add_suffix(self.test_spinner)
+        self.test_row.add_suffix(self.test_btn)
+        g.add(self.test_row)
         return g
+
+    def _test_proxy(self) -> None:
+        from .proxytest import ProxyTestError, test_proxy
+
+        svc = self._collect()  # valori della maschera, anche se non ancora salvati
+        if svc.proxy.type != "none" and not svc.proxy.enabled:
+            self.win.toast("Inserisci host e porta del proxy")
+            return
+        self.test_btn.set_sensitive(False)
+        self.test_spinner.set_visible(True)
+        self.test_spinner.start()
+        self.test_row.remove_css_class("error")
+        self.test_row.remove_css_class("success")
+        self.test_row.set_subtitle("Prova in corso…" if svc.proxy.enabled else "Nessun proxy: provo la connessione diretta…")
+
+        def work():
+            try:
+                return True, test_proxy(svc.proxy, svc.url).summary()
+            except (ProxyTestError, OSError) as e:
+                return False, f"Non funziona: {e}"
+
+        def done(outcome):
+            ok, text = outcome
+            self.test_spinner.stop()
+            self.test_spinner.set_visible(False)
+            self.test_btn.set_sensitive(True)
+            self.test_row.set_subtitle(text)
+            self.test_row.add_css_class("success" if ok else "error")
+
+        self.win.run_async(work, done)
 
     def _addon_group(self) -> Adw.PreferencesGroup:
         self.addon_group = Adw.PreferencesGroup(title="Addon", description=ADDON_HINT)

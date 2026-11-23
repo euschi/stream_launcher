@@ -63,6 +63,8 @@ stream-launcher duplicate paramountplus-us --name "Paramount+ USA 2" [--copy-pro
 stream-launcher rename netflix "Netflix famiglia"
 stream-launcher proxy paramountplus-us --type socks5 --host 1.2.3.4 --port 1080 --user io
 stream-launcher proxy paramountplus-us --off
+stream-launcher proxy-test paramountplus-us         # IP/paese di uscita, il servizio risponde?
+stream-launcher storage move /var/lib/stream-launcher  # runtime e profili su un disco veloce
 stream-launcher useragent primevideo windows        # default | windows | "stringa"
 stream-launcher addon netflix add amo:ublock-origin
 stream-launcher addon netflix add chrome:<id-di-32-lettere>
@@ -109,7 +111,11 @@ all'installazione dai siti dei servizi.
   Windows» a volte alza la risoluzione concessa: prova servizio per servizio.
 - **Proxy**: se il proxy non risponde il traffico si blocca, non esce in chiaro.
   DNS e WebRTC passano dal proxy. Le credenziali e il tipo HTTPS usano
-  un'estensione interna e richiedono il runtime ESR.
+  un'estensione interna e richiedono il runtime ESR. **Prova connessione**
+  (finestra impostazioni) o `proxy-test` verificano con lo stesso protocollo di
+  Firefox IP e paese di uscita (via ipinfo.io) e che il sito del servizio risponda.
+- **"L'applicazione non risponde"**: succede se runtime e profili stanno su un
+  disco lento o saturo (HDD, trim in corso). Spostali su SSD con `storage move`.
 - **Addon Chrome**: vengono convertiti al volo (id Gecko, service worker →
   background script). Le API Chrome più esotiche possono non funzionare in Firefox.
   Gli addon non firmati funzionano solo con il runtime ESR (predefinito).

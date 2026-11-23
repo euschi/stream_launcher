@@ -80,6 +80,19 @@ def cmd_proxy(args) -> None:
     print(f"{svc.name}: {svc.proxy.describe()}. Effettivo dal prossimo avvio.")
 
 
+def cmd_proxy_test(args) -> None:
+    from .proxytest import ProxyTestError, test_proxy
+
+    svc = core.load_service(args.id)
+    label = svc.proxy.describe() if svc.proxy.enabled else "connessione diretta (nessun proxy)"
+    print(f"{svc.name}: provo {label}...")
+    try:
+        result = test_proxy(svc.proxy, svc.url)
+    except ProxyTestError as e:
+        raise LauncherError(f"proxy non funzionante: {e}") from e
+    print(result.summary())
+
+
 def cmd_useragent(args) -> None:
     svc = core.load_service(args.id)
     svc.user_agent = "" if args.value == "default" else args.value
@@ -191,6 +204,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--user")
     s.add_argument("--password", help="se omessa con --user viene chiesta")
     s.set_defaults(func=cmd_proxy)
+
+    s = sub.add_parser("proxy-test", help="prova il proxy: IP e paese di uscita, raggiungibilità del servizio")
+    s.add_argument("id")
+    s.set_defaults(func=cmd_proxy_test)
 
     s = sub.add_parser("useragent", help="user agent: default, windows o stringa personalizzata")
     s.add_argument("id")
