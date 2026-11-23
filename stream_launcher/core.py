@@ -35,11 +35,23 @@ CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config") / APP
 SERVICES_DIR = CONFIG_DIR / "services"
 SETTINGS_FILE = CONFIG_DIR / "settings.ini"
 APPS_DIR = XDG_DATA / "applications"
-RUNTIME_DIR = DATA_DIR / "firefox"
-PROFILES_DIR = DATA_DIR / "profiles"
 ICONS_DIR = DATA_DIR / "icons"
-ADDON_CACHE = DATA_DIR / "addons-cache"
 LOG_FILE = DATA_DIR / "launch.log"
+
+
+def _storage_root() -> Path:
+    """Dove stanno runtime, profili e cache addon: spostabile su un disco veloce."""
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.read(SETTINGS_FILE, encoding="utf-8")
+    custom = cp.get("paths", "storage", fallback="").strip()
+    return Path(custom).expanduser() if custom else DATA_DIR
+
+
+STORAGE_DIR = _storage_root()
+STORAGE_ITEMS = ("firefox", "profiles", "addons-cache")
+RUNTIME_DIR = STORAGE_DIR / "firefox"
+PROFILES_DIR = STORAGE_DIR / "profiles"
+ADDON_CACHE = STORAGE_DIR / "addons-cache"
 
 # Radice dell'applicazione (repo o copia installata): contiene config/, templates/, bin/.
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -360,6 +372,37 @@ def _set_runtime_channel(channel: str) -> None:
     cp = _settings()
     cp["runtime"]["channel"] = channel
     _write_settings(cp)
+
+
+def move_storage(target: str) -> Path:
+    """Sposta runtime, profili e cache addon in `target` (es. su un SSD)."""
+    dest = Path(target).expanduser().resolve()
+    if dest == STORAGE_DIR.resolve():
+        raise LauncherError(f"I dati sono già in {dest}.")
+    if dest.is_relative_to(STORAGE_DIR.resolve()):
+        raise LauncherError("La destinazione non può stare dentro la cartella attuale.")
+    running = [s.name for s in list_services() if profile_running(s.profile_dir)]
+    if running:
+        raise LauncherError(f"Chiudi prima: {', '.join(running)}.")
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        dest.chmod(0o700)  # profili con cookie e password
+    except OSError as e:
+        raise LauncherError(f"Non posso usare {dest}: {e}") from e
+    clash = [n for n in STORAGE_ITEMS if (dest / n).exists() and (STORAGE_DIR / n).exists()]
+    if clash:
+        raise LauncherError(f"In {dest} esiste già: {', '.join(clash)}.")
+    for name in STORAGE_ITEMS:
+        src = STORAGE_DIR / name
+        if src.exists():
+            print(f"Sposto {name}...", file=sys.stderr)
+            shutil.move(str(src), str(dest / name))
+    cp = _settings()
+    if not cp.has_section("paths"):
+        cp["paths"] = {}
+    cp["paths"]["storage"] = "" if dest == DATA_DIR.resolve() else str(dest)
+    _write_settings(cp)
+    return dest
 
 
 # --------------------------------------------------------------------------- runtime

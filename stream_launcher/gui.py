@@ -358,15 +358,17 @@ class ServiceEditor(Adw.NavigationPage):
         def on_response(_d, response):
             if response != "duplicate":
                 return
-            try:
-                new = core.duplicate_service(self.svc.id, entry.get_text(), copy_profile=copy_profile.get_active())
-            except (LauncherError, OSError) as e:
-                self.win.toast(str(e))
-                return
-            self.win.list_page.refresh()
-            self.win.nav.pop()
-            self.win.open_editor(new.id)
-            self.win.toast(f"Creato «{new.name}»")
+            name, copy = entry.get_text(), copy_profile.get_active()
+
+            def done(new):
+                self.win.list_page.refresh()
+                self.win.nav.pop()
+                self.win.open_editor(new.id)
+                self.win.toast(f"Creato «{new.name}»")
+
+            self.win.toast("Duplico…")
+            # La copia del profilo può durare a lungo: mai sul thread della GUI.
+            self.win.run_async(lambda: core.duplicate_service(self.svc.id, name, copy_profile=copy), done)
 
         dialog.connect("response", on_response)
         dialog.present(self.win)
@@ -383,14 +385,13 @@ class ServiceEditor(Adw.NavigationPage):
         def on_response(_d, response):
             if response != "delete":
                 return
-            try:
-                core.remove_service(self.svc.id)
-            except LauncherError as e:
-                self.win.toast(str(e))
-                return
-            self.win.list_page.refresh()
-            self.win.nav.pop()
-            self.win.toast("Servizio eliminato")
+
+            def done(_result):
+                self.win.list_page.refresh()
+                self.win.nav.pop()
+                self.win.toast("Servizio eliminato")
+
+            self.win.run_async(lambda: core.remove_service(self.svc.id), done)
 
         dialog.connect("response", on_response)
         dialog.present(self.win)
@@ -428,14 +429,35 @@ class Window(Adw.ApplicationWindow):
         core.launch_detached(service_id)
         self.toast("Avvio in corso…")
 
+    def run_async(self, work, on_done) -> None:
+        """Esegue `work` in un thread (disco/rete) e `on_done(risultato)` sul thread GTK.
+
+        Tenere libero il thread della GUI evita il "non risponde" di GNOME.
+        """
+
+        def runner():
+            try:
+                result, error = work(), None
+            except (LauncherError, OSError) as e:
+                result, error = None, str(e)
+            GLib.idle_add(finish, result, error)
+
+        def finish(result, error):
+            if error:
+                self.toast(error)
+            else:
+                on_done(result)
+            return False
+
+        threading.Thread(target=runner, daemon=True).start()
+
     def _add_template(self, _action, param: GLib.Variant) -> None:
-        try:
-            svc = core.add_from_template(param.get_string())
-        except LauncherError as e:
-            self.toast(str(e))
-            return
-        self.list_page.refresh()
-        self.open_editor(svc.id)
+        def done(svc):
+            self.list_page.refresh()
+            self.open_editor(svc.id)
+
+        # Scarica l'icona: in background.
+        self.run_async(lambda: core.add_from_template(param.get_string()), done)
 
 
 def main(service_id: str | None = None) -> int:

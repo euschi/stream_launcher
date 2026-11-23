@@ -120,6 +120,16 @@ def cmd_runtime(args) -> None:
         print(f"Runtime: {state} — canale {core.runtime_channel()} — {core.RUNTIME_DIR}")
 
 
+def cmd_storage(args) -> None:
+    if args.action == "move":
+        if not args.dir:
+            raise LauncherError("Indica la cartella di destinazione.")
+        dest = core.move_storage(args.dir)
+        print(f"Runtime e profili ora in {dest}.")
+    else:
+        print(f"Runtime, profili e cache addon: {core.STORAGE_DIR}")
+
+
 def cmd_init(args) -> None:
     """Usato da install.sh: runtime, servizi predefiniti, voci di menu."""
     if args.update_runtime or not core.runtime_installed():
@@ -197,6 +207,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("action", choices=["install", "info"])
     s.add_argument("--channel", choices=sorted(core.RUNTIME_URLS))
     s.set_defaults(func=cmd_runtime)
+
+    s = sub.add_parser("storage", help="dove stanno runtime e profili (spostali su un SSD)")
+    s.add_argument("action", choices=["info", "move"])
+    s.add_argument("dir", nargs="?")
+    s.set_defaults(func=cmd_storage)
 
     s = sub.add_parser("init", help="prima installazione (usato da install.sh)")
     s.add_argument("--update-runtime", action="store_true")

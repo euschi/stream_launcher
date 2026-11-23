@@ -39,6 +39,23 @@ user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);
 user_pref("browser.translations.automaticallyPopup", false);
 user_pref("signon.rememberSignons", true);
 
+// --- Meno scritture su disco ---
+// Su dischi lenti o saturi (HDD, fstrim in corso) ogni fsync blocca Firefox e
+// GNOME mostra "l'applicazione non risponde". La cache web va in RAM, la sessione
+// si salva di rado (i login stanno nei cookie, non nella sessione) e le liste
+// di safebrowsing, che riscrivono decine di MB, non si scaricano.
+user_pref("browser.cache.disk.enable", false);
+user_pref("browser.cache.memory.enable", true);
+user_pref("browser.cache.memory.capacity", 262144);
+user_pref("browser.sessionstore.interval", 600000);
+user_pref("browser.sessionstore.max_tabs_undo", 0);
+user_pref("browser.safebrowsing.malware.enabled", false);
+user_pref("browser.safebrowsing.phishing.enabled", false);
+user_pref("browser.safebrowsing.downloads.enabled", false);
+user_pref("browser.safebrowsing.blockedURIs.enabled", false);
+user_pref("browser.safebrowsing.update.enabled", false);
+user_pref("places.history.enabled", false);
+
 // --- Addon gestiti dal launcher (cartella extensions del profilo) ---
 // Attivati senza conferma; le firme si possono disattivare solo sul runtime ESR.
 user_pref("extensions.autoDisableScopes", 0);
