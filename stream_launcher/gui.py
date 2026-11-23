@@ -97,7 +97,15 @@ class ServiceListPage(Adw.NavigationPage):
                 css_classes=["flat"],
             )
             play.connect("clicked", lambda _b, sid=svc.id: self.win.launch(sid))
+            delete = Gtk.Button(
+                icon_name="user-trash-symbolic",
+                tooltip_text="Elimina",
+                valign=Gtk.Align.CENTER,
+                css_classes=["flat", "error"],
+            )
+            delete.connect("clicked", lambda _b, s=svc: self.win.confirm_delete(s))
             row.add_suffix(play)
+            row.add_suffix(delete)
             row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
             row.connect("activated", lambda _r, sid=svc.id: self.win.open_editor(sid))
             self.group.add(row)
@@ -140,6 +148,7 @@ class ServiceEditor(Adw.NavigationPage):
         page = Adw.PreferencesPage()
         page.add(self._service_group())
         page.add(self._proxy_group())
+        page.add(self._password_group())
         page.add(self._addon_group())
         page.add(self._actions_group())
 
@@ -192,7 +201,96 @@ class ServiceEditor(Adw.NavigationPage):
         g.add(self.proxy_type)
         for row in self.proxy_rows:
             g.add(row)
+
+        self.test_row = Adw.ActionRow(title="Prova connessione", subtitle="Verifica IP e paese di uscita e che il servizio risponda")
+        self.test_row.set_use_markup(False)
+        self.test_row.set_subtitle_lines(3)
+        self.test_spinner = Gtk.Spinner(visible=False)
+        self.test_btn = Gtk.Button(label="Prova", valign=Gtk.Align.CENTER)
+        self.test_btn.connect("clicked", lambda _b: self._test_proxy())
+        self.test_row.add_suffix(self.test_spinner)
+        self.test_row.add_suffix(self.test_btn)
+        g.add(self.test_row)
         return g
+
+    def _password_group(self) -> Adw.PreferencesGroup:
+        from .passwords import default_browser, domains_for
+
+        source = default_browser()
+        browser = source.name if source else "browser predefinito"
+        g = Adw.PreferencesGroup(
+            title="Password",
+            description=f"A ogni avvio i login di questo servizio salvati in {browser} vengono "
+            "importati nel profilo (nuovi e password cambiate). Solo i domini indicati.",
+        )
+        self.pw_switch = Adw.SwitchRow(title=f"Importa password da {browser}")
+        self.pw_switch.set_active(self.svc.passwords == "auto" and source is not None)
+        self.pw_switch.set_sensitive(source is not None)
+        if not source:
+            self.pw_switch.set_subtitle("Il browser predefinito non è Chrome, Chromium o Brave")
+        self.pw_domains = Adw.EntryRow(title=f"Domini (vuoto = {', '.join(domains_for(self.svc.url))})")
+        self.pw_domains.set_text(", ".join(self.svc.login_domains))
+
+        self.pw_check = Adw.ActionRow(title="Login trovati", subtitle="Controlla quali login verrebbero importati")
+        self.pw_check.set_use_markup(False)
+        self.pw_check.set_subtitle_lines(4)
+        btn = Gtk.Button(label="Controlla", valign=Gtk.Align.CENTER, sensitive=source is not None)
+        btn.connect("clicked", lambda _b: self._check_passwords())
+        self.pw_check.add_suffix(btn)
+        self.pw_switch.connect("notify::active", lambda *_: self._sync_sensitivity())
+        for row in (self.pw_switch, self.pw_domains, self.pw_check):
+            g.add(row)
+        return g
+
+    def _check_passwords(self) -> None:
+        from .passwords import PasswordError, default_browser, read_logins
+
+        svc = self._collect()
+        self.pw_check.set_subtitle("Controllo…")
+
+        def work():
+            source = default_browser()
+            try:
+                logins = read_logins(source, core.login_domains(svc))
+            except PasswordError as e:
+                return f"Errore: {e}"
+            if not logins:
+                return "Nessun login salvato per questi domini"
+            # Mai le password: solo siti e utenti.
+            people = sorted({f"{lg['username']} ({lg['origin'].split('://', 1)[1]})" for lg in logins})
+            return f"{len(logins)} login: " + ", ".join(people)
+
+        self.win.run_async(work, self.pw_check.set_subtitle)
+
+    def _test_proxy(self) -> None:
+        from .proxytest import ProxyTestError, test_proxy
+
+        svc = self._collect()  # valori della maschera, anche se non ancora salvati
+        if svc.proxy.type != "none" and not svc.proxy.enabled:
+            self.win.toast("Inserisci host e porta del proxy")
+            return
+        self.test_btn.set_sensitive(False)
+        self.test_spinner.set_visible(True)
+        self.test_spinner.start()
+        self.test_row.remove_css_class("error")
+        self.test_row.remove_css_class("success")
+        self.test_row.set_subtitle("Prova in corso…" if svc.proxy.enabled else "Nessun proxy: provo la connessione diretta…")
+
+        def work():
+            try:
+                return True, test_proxy(svc.proxy, svc.url).summary()
+            except (ProxyTestError, OSError) as e:
+                return False, f"Non funziona: {e}"
+
+        def done(outcome):
+            ok, text = outcome
+            self.test_spinner.stop()
+            self.test_spinner.set_visible(False)
+            self.test_btn.set_sensitive(True)
+            self.test_row.set_subtitle(text)
+            self.test_row.add_css_class("success" if ok else "error")
+
+        self.win.run_async(work, done)
 
     def _addon_group(self) -> Adw.PreferencesGroup:
         self.addon_group = Adw.PreferencesGroup(title="Addon", description=ADDON_HINT)
@@ -217,8 +315,11 @@ class ServiceEditor(Adw.NavigationPage):
         launch.connect("activated", lambda _r: self.save() and self.win.launch(self.svc.id))
         dup = Adw.ButtonRow(title="Duplica…", start_icon_name="edit-copy-symbolic")
         dup.connect("activated", lambda _r: self._ask_duplicate())
-        delete = Adw.ButtonRow(title="Elimina…", start_icon_name="user-trash-symbolic", css_classes=["destructive-action"])
-        delete.connect("activated", lambda _r: self._ask_delete())
+        delete = Adw.ButtonRow(title="Elimina…", start_icon_name="user-trash-symbolic")
+        # add_css_class, non css_classes=[...]: quello sostituirebbe le classi interne
+        # della riga e la renderebbe più bassa delle altre.
+        delete.add_css_class("destructive-action")
+        delete.connect("activated", lambda _r: self.win.confirm_delete(self.svc, self.win.nav.pop))
         for row in (launch, dup, delete):
             g.add(row)
         return g
@@ -230,6 +331,8 @@ class ServiceEditor(Adw.NavigationPage):
         active = _selected_key(self.proxy_type, PROXY_CHOICES) != "none"
         for row in self.proxy_rows:
             row.set_sensitive(active)
+        if hasattr(self, "pw_switch"):
+            self.pw_domains.set_sensitive(self.pw_switch.get_active())
 
     def _render_addons(self) -> None:
         for row in self.addon_rows:
@@ -318,6 +421,11 @@ class ServiceEditor(Adw.NavigationPage):
             user_agent=ua,
             addons=list(self.addons),
             proxy=proxy,
+            # Senza browser compatibile lo switch è spento: non sovrascrivo la scelta salvata.
+            passwords=("auto" if self.pw_switch.get_active() else "off")
+            if self.pw_switch.get_sensitive()
+            else self.svc.passwords,
+            login_domains=core.split_domains(self.pw_domains.get_text()),
         )
 
     def save(self) -> bool:
@@ -358,42 +466,21 @@ class ServiceEditor(Adw.NavigationPage):
         def on_response(_d, response):
             if response != "duplicate":
                 return
-            try:
-                new = core.duplicate_service(self.svc.id, entry.get_text(), copy_profile=copy_profile.get_active())
-            except (LauncherError, OSError) as e:
-                self.win.toast(str(e))
-                return
-            self.win.list_page.refresh()
-            self.win.nav.pop()
-            self.win.open_editor(new.id)
-            self.win.toast(f"Creato «{new.name}»")
+            name, copy = entry.get_text(), copy_profile.get_active()
+
+            def done(new):
+                self.win.list_page.refresh()
+                self.win.nav.pop()
+                self.win.open_editor(new.id)
+                self.win.toast(f"Creato «{new.name}»")
+
+            self.win.toast("Duplico…")
+            # La copia del profilo può durare a lungo: mai sul thread della GUI.
+            self.win.run_async(lambda: core.duplicate_service(self.svc.id, name, copy_profile=copy), done)
 
         dialog.connect("response", on_response)
         dialog.present(self.win)
 
-    def _ask_delete(self) -> None:
-        dialog = Adw.AlertDialog(
-            heading=f"Eliminare «{self.svc.name}»?",
-            body="Verranno rimossi configurazione, voce di menu e profilo (login compresi).",
-        )
-        dialog.add_response("cancel", "Annulla")
-        dialog.add_response("delete", "Elimina")
-        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-
-        def on_response(_d, response):
-            if response != "delete":
-                return
-            try:
-                core.remove_service(self.svc.id)
-            except LauncherError as e:
-                self.win.toast(str(e))
-                return
-            self.win.list_page.refresh()
-            self.win.nav.pop()
-            self.win.toast("Servizio eliminato")
-
-        dialog.connect("response", on_response)
-        dialog.present(self.win)
 
 
 class Window(Adw.ApplicationWindow):
@@ -428,14 +515,61 @@ class Window(Adw.ApplicationWindow):
         core.launch_detached(service_id)
         self.toast("Avvio in corso…")
 
+    def confirm_delete(self, svc: core.Service, after=None) -> None:
+        """Chiede conferma ed elimina il servizio; `after()` dopo l'eliminazione."""
+        dialog = Adw.AlertDialog(
+            heading=f"Eliminare «{svc.name}»?",
+            body="Verranno rimossi configurazione, voce di menu e profilo (login compresi).",
+        )
+        dialog.add_response("cancel", "Annulla")
+        dialog.add_response("delete", "Elimina")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_close_response("cancel")
+
+        def on_response(_d, response):
+            if response != "delete":
+                return
+
+            def done(_result):
+                self.list_page.refresh()
+                if after:
+                    after()
+                self.toast(f"«{svc.name}» eliminato")
+
+            self.run_async(lambda: core.remove_service(svc.id), done)
+
+        dialog.connect("response", on_response)
+        dialog.present(self)
+
+    def run_async(self, work, on_done) -> None:
+        """Esegue `work` in un thread (disco/rete) e `on_done(risultato)` sul thread GTK.
+
+        Tenere libero il thread della GUI evita il "non risponde" di GNOME.
+        """
+
+        def runner():
+            try:
+                result, error = work(), None
+            except (LauncherError, OSError) as e:
+                result, error = None, str(e)
+            GLib.idle_add(finish, result, error)
+
+        def finish(result, error):
+            if error:
+                self.toast(error)
+            else:
+                on_done(result)
+            return False
+
+        threading.Thread(target=runner, daemon=True).start()
+
     def _add_template(self, _action, param: GLib.Variant) -> None:
-        try:
-            svc = core.add_from_template(param.get_string())
-        except LauncherError as e:
-            self.toast(str(e))
-            return
-        self.list_page.refresh()
-        self.open_editor(svc.id)
+        def done(svc):
+            self.list_page.refresh()
+            self.open_editor(svc.id)
+
+        # Scarica l'icona: in background.
+        self.run_async(lambda: core.add_from_template(param.get_string()), done)
 
 
 def main(service_id: str | None = None) -> int:

@@ -18,6 +18,23 @@ dà a ogni servizio:
 I servizi si possono **duplicare con un nome a scelta**, ad esempio Paramount+
 Italia e Paramount+ USA (con proxy USA), o due account dello stesso servizio.
 
+### Servizi inclusi
+
+| Categoria | Servizi |
+|---|---|
+| Abbonamento | Netflix, Prime Video, Disney+, NOW, Sky Go, HBO Max, Apple TV, Paramount+ Italia, Paramount+ USA, TIMVISION, MUBI, Crunchyroll |
+| Sport | DAZN |
+| Gratuiti / TV | RaiPlay, Mediaset Infinity, La7, Pluto TV, YouTube |
+| Noleggio | Chili, Rakuten TV |
+
+Sono tutti creati all'installazione. Gli aggiornamenti aggiungono i servizi nuovi,
+ma non ripristinano quelli che hai eliminato; puoi sempre riaggiungerli dal
+pulsante **+** della finestra impostazioni (o con `stream-launcher add <modello>`,
+elenco con `stream-launcher templates`).
+
+Se un servizio dice che il browser o il sistema non è supportato, imposta lo
+user agent «Firefox su Windows».
+
 ## Installazione
 
 ```bash
@@ -46,6 +63,8 @@ stream-launcher duplicate paramountplus-us --name "Paramount+ USA 2" [--copy-pro
 stream-launcher rename netflix "Netflix famiglia"
 stream-launcher proxy paramountplus-us --type socks5 --host 1.2.3.4 --port 1080 --user io
 stream-launcher proxy paramountplus-us --off
+stream-launcher proxy-test paramountplus-us         # IP/paese di uscita, il servizio risponde?
+stream-launcher storage move /var/lib/stream-launcher  # runtime e profili su un disco veloce
 stream-launcher useragent primevideo windows        # default | windows | "stringa"
 stream-launcher addon netflix add amo:ublock-origin
 stream-launcher addon netflix add chrome:<id-di-32-lettere>
@@ -81,6 +100,9 @@ Le modifiche valgono dal prossimo avvio del servizio.
 | `config/policies.json` | policy del runtime: telemetria off, DRM sempre attivo |
 | `config/chrome/userChrome.css` | nasconde schede e barre |
 | `config/proxy-extension/` | estensione generata per proxy con credenziali / HTTPS |
+| `config/autoconfig/` | script di avvio del runtime: importa le password nel profilo |
+| `stream_launcher/passwords.py` | lettura e decifratura dei login di Chrome/Chromium/Brave |
+| `stream_launcher/proxytest.py` | test di connessione del proxy |
 
 Le icone dei servizi (marchi registrati) non sono nel repo: vengono scaricate
 all'installazione dai siti dei servizi.
@@ -92,7 +114,20 @@ all'installazione dai siti dei servizi.
   Windows» a volte alza la risoluzione concessa: prova servizio per servizio.
 - **Proxy**: se il proxy non risponde il traffico si blocca, non esce in chiaro.
   DNS e WebRTC passano dal proxy. Le credenziali e il tipo HTTPS usano
-  un'estensione interna e richiedono il runtime ESR.
+  un'estensione interna e richiedono il runtime ESR. **Prova connessione**
+  (finestra impostazioni) o `proxy-test` verificano con lo stesso protocollo di
+  Firefox IP e paese di uscita (via ipinfo.io) e che il sito del servizio risponda.
+- **Password**: se il browser predefinito è Chrome, Chromium o Brave, a ogni
+  avvio di un servizio i login salvati lì per i suoi domini (es. Prime Video:
+  primevideo.com, amazon.it, amazon.com) vengono importati nel profilo: nuovi
+  login e password cambiate. Sono decifrati con la chiave del portachiavi GNOME,
+  passati a Firefox in un file con permessi 600 che viene cancellato appena
+  importato. Si disattiva per servizio (finestra impostazioni o
+  `stream-launcher passwords <id> off`); `passwords <id> check` mostra quali
+  login verrebbero importati (siti e utenti, mai le password). Per leggere da un
+  browser diverso dal predefinito: `STREAM_LAUNCHER_PASSWORD_BROWSER=chromium`.
+- **"L'applicazione non risponde"**: succede se runtime e profili stanno su un
+  disco lento o saturo (HDD, trim in corso). Spostali su SSD con `storage move`.
 - **Addon Chrome**: vengono convertiti al volo (id Gecko, service worker →
   background script). Le API Chrome più esotiche possono non funzionare in Firefox.
   Gli addon non firmati funzionano solo con il runtime ESR (predefinito).

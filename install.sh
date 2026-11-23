@@ -37,6 +37,14 @@ stop_tray() {
 
 if [[ "${1:-}" == "--uninstall" ]]; then
   stop_tray
+  # Runtime e profili possono essere stati spostati (stream-launcher storage move):
+  # lì tolgo solo le cartelle create dal launcher, non la cartella scelta dall'utente.
+  if [[ -x "$BIN_LINK" ]]; then
+    storage="$("$BIN_LINK" storage info 2>/dev/null | sed 's/^[^:]*: //')"
+    if [[ -n "$storage" && "$storage" != "$DATA_DIR" ]]; then
+      rm -rf "$storage/firefox" "$storage/profiles" "$storage/addons-cache"
+    fi
+  fi
   rm -rf "$DATA_DIR"
   rm -f "$BIN_LINK" "$AUTOSTART" "$APPS_DIR"/stream-launcher.desktop "$APPS_DIR"/stream-launcher-*.desktop
   update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
