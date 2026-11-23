@@ -80,6 +80,45 @@ def cmd_proxy(args) -> None:
     print(f"{svc.name}: {svc.proxy.describe()}. Effettivo dal prossimo avvio.")
 
 
+def cmd_proxy_test(args) -> None:
+    from .proxytest import ProxyTestError, test_proxy
+
+    svc = core.load_service(args.id)
+    label = svc.proxy.describe() if svc.proxy.enabled else "connessione diretta (nessun proxy)"
+    print(f"{svc.name}: provo {label}...")
+    try:
+        result = test_proxy(svc.proxy, svc.url)
+    except ProxyTestError as e:
+        raise LauncherError(f"proxy non funzionante: {e}") from e
+    print(result.summary())
+
+
+def cmd_passwords(args) -> None:
+    from .passwords import PasswordError, default_browser, read_logins
+
+    svc = core.load_service(args.id)
+    if args.domains is not None:
+        svc.login_domains = core.split_domains(args.domains)
+    if args.action in ("on", "off"):
+        svc.passwords = "auto" if args.action == "on" else "off"
+    if args.action != "check" or args.domains is not None:
+        core.save_service(svc)
+    source = default_browser()
+    state = "attivo" if svc.passwords == "auto" else "disattivato"
+    print(f"{svc.name}: import password {state} — domini {', '.join(core.login_domains(svc))}")
+    if not source:
+        print("Il browser predefinito non è Chrome/Chromium/Brave: niente da importare.")
+        return
+    try:
+        logins = read_logins(source, core.login_domains(svc))
+    except PasswordError as e:
+        raise LauncherError(str(e)) from e
+    # Solo siti e utenti, mai le password.
+    print(f"{len(logins)} login trovati in {source.name}:")
+    for login in sorted(logins, key=lambda x: (x["origin"], x["username"])):
+        print(f"  {login['origin']}  {login['username']}")
+
+
 def cmd_useragent(args) -> None:
     svc = core.load_service(args.id)
     svc.user_agent = "" if args.value == "default" else args.value
@@ -120,6 +159,16 @@ def cmd_runtime(args) -> None:
         print(f"Runtime: {state} — canale {core.runtime_channel()} — {core.RUNTIME_DIR}")
 
 
+def cmd_storage(args) -> None:
+    if args.action == "move":
+        if not args.dir:
+            raise LauncherError("Indica la cartella di destinazione.")
+        dest = core.move_storage(args.dir)
+        print(f"Runtime e profili ora in {dest}.")
+    else:
+        print(f"Runtime, profili e cache addon: {core.STORAGE_DIR}")
+
+
 def cmd_init(args) -> None:
     """Usato da install.sh: runtime, servizi predefiniti, voci di menu."""
     if args.update_runtime or not core.runtime_installed():
@@ -128,7 +177,7 @@ def cmd_init(args) -> None:
     else:
         core.install_policies()
     for svc in core.seed_default_services():
-        print(f"Servizio predefinito: {svc.name}")
+        print(f"Nuovo servizio: {svc.name}")
     core.sync_desktop_entries()
 
 
@@ -182,6 +231,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--password", help="se omessa con --user viene chiesta")
     s.set_defaults(func=cmd_proxy)
 
+    s = sub.add_parser("proxy-test", help="prova il proxy: IP e paese di uscita, raggiungibilità del servizio")
+    s.add_argument("id")
+    s.set_defaults(func=cmd_proxy_test)
+
+    s = sub.add_parser("passwords", help="password dal browser predefinito: on, off o check")
+    s.add_argument("id")
+    s.add_argument("action", choices=["on", "off", "check"])
+    s.add_argument("--domains", help="domini dei login, separati da virgola (vuoto = automatici)")
+    s.set_defaults(func=cmd_passwords)
+
     s = sub.add_parser("useragent", help="user agent: default, windows o stringa personalizzata")
     s.add_argument("id")
     s.add_argument("value")
@@ -197,6 +256,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("action", choices=["install", "info"])
     s.add_argument("--channel", choices=sorted(core.RUNTIME_URLS))
     s.set_defaults(func=cmd_runtime)
+
+    s = sub.add_parser("storage", help="dove stanno runtime e profili (spostali su un SSD)")
+    s.add_argument("action", choices=["info", "move"])
+    s.add_argument("dir", nargs="?")
+    s.set_defaults(func=cmd_storage)
 
     s = sub.add_parser("init", help="prima installazione (usato da install.sh)")
     s.add_argument("--update-runtime", action="store_true")
