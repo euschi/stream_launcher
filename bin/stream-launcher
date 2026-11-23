@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Punto d'ingresso: funziona sia dal repo sia dalla copia installata (anche via symlink)."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from stream_launcher.cli import main  # noqa: E402
+
+sys.exit(main())
