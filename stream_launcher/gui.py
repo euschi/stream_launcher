@@ -97,7 +97,15 @@ class ServiceListPage(Adw.NavigationPage):
                 css_classes=["flat"],
             )
             play.connect("clicked", lambda _b, sid=svc.id: self.win.launch(sid))
+            delete = Gtk.Button(
+                icon_name="user-trash-symbolic",
+                tooltip_text="Elimina",
+                valign=Gtk.Align.CENTER,
+                css_classes=["flat", "error"],
+            )
+            delete.connect("clicked", lambda _b, s=svc: self.win.confirm_delete(s))
             row.add_suffix(play)
+            row.add_suffix(delete)
             row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
             row.connect("activated", lambda _r, sid=svc.id: self.win.open_editor(sid))
             self.group.add(row)
@@ -257,8 +265,11 @@ class ServiceEditor(Adw.NavigationPage):
         launch.connect("activated", lambda _r: self.save() and self.win.launch(self.svc.id))
         dup = Adw.ButtonRow(title="Duplica…", start_icon_name="edit-copy-symbolic")
         dup.connect("activated", lambda _r: self._ask_duplicate())
-        delete = Adw.ButtonRow(title="Elimina…", start_icon_name="user-trash-symbolic", css_classes=["destructive-action"])
-        delete.connect("activated", lambda _r: self._ask_delete())
+        delete = Adw.ButtonRow(title="Elimina…", start_icon_name="user-trash-symbolic")
+        # add_css_class, non css_classes=[...]: quello sostituirebbe le classi interne
+        # della riga e la renderebbe più bassa delle altre.
+        delete.add_css_class("destructive-action")
+        delete.connect("activated", lambda _r: self.win.confirm_delete(self.svc, self.win.nav.pop))
         for row in (launch, dup, delete):
             g.add(row)
         return g
@@ -413,28 +424,6 @@ class ServiceEditor(Adw.NavigationPage):
         dialog.connect("response", on_response)
         dialog.present(self.win)
 
-    def _ask_delete(self) -> None:
-        dialog = Adw.AlertDialog(
-            heading=f"Eliminare «{self.svc.name}»?",
-            body="Verranno rimossi configurazione, voce di menu e profilo (login compresi).",
-        )
-        dialog.add_response("cancel", "Annulla")
-        dialog.add_response("delete", "Elimina")
-        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-
-        def on_response(_d, response):
-            if response != "delete":
-                return
-
-            def done(_result):
-                self.win.list_page.refresh()
-                self.win.nav.pop()
-                self.win.toast("Servizio eliminato")
-
-            self.win.run_async(lambda: core.remove_service(self.svc.id), done)
-
-        dialog.connect("response", on_response)
-        dialog.present(self.win)
 
 
 class Window(Adw.ApplicationWindow):
@@ -468,6 +457,32 @@ class Window(Adw.ApplicationWindow):
             return
         core.launch_detached(service_id)
         self.toast("Avvio in corso…")
+
+    def confirm_delete(self, svc: core.Service, after=None) -> None:
+        """Chiede conferma ed elimina il servizio; `after()` dopo l'eliminazione."""
+        dialog = Adw.AlertDialog(
+            heading=f"Eliminare «{svc.name}»?",
+            body="Verranno rimossi configurazione, voce di menu e profilo (login compresi).",
+        )
+        dialog.add_response("cancel", "Annulla")
+        dialog.add_response("delete", "Elimina")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_close_response("cancel")
+
+        def on_response(_d, response):
+            if response != "delete":
+                return
+
+            def done(_result):
+                self.list_page.refresh()
+                if after:
+                    after()
+                self.toast(f"«{svc.name}» eliminato")
+
+            self.run_async(lambda: core.remove_service(svc.id), done)
+
+        dialog.connect("response", on_response)
+        dialog.present(self)
 
     def run_async(self, work, on_done) -> None:
         """Esegue `work` in un thread (disco/rete) e `on_done(risultato)` sul thread GTK.
