@@ -128,7 +128,7 @@ def cmd_init(args) -> None:
     else:
         core.install_policies()
     for svc in core.seed_default_services():
-        print(f"Servizio predefinito: {svc.name}")
+        print(f"Nuovo servizio: {svc.name}")
     core.sync_desktop_entries()
 
 

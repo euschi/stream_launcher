@@ -18,6 +18,23 @@ dà a ogni servizio:
 I servizi si possono **duplicare con un nome a scelta**, ad esempio Paramount+
 Italia e Paramount+ USA (con proxy USA), o due account dello stesso servizio.
 
+### Servizi inclusi
+
+| Categoria | Servizi |
+|---|---|
+| Abbonamento | Netflix, Prime Video, Disney+, NOW, Sky Go, HBO Max, Apple TV, Paramount+ Italia, Paramount+ USA, TIMVISION, MUBI, Crunchyroll |
+| Sport | DAZN |
+| Gratuiti / TV | RaiPlay, Mediaset Infinity, La7, Pluto TV, YouTube |
+| Noleggio | Chili, Rakuten TV |
+
+Sono tutti creati all'installazione. Gli aggiornamenti aggiungono i servizi nuovi,
+ma non ripristinano quelli che hai eliminato; puoi sempre riaggiungerli dal
+pulsante **+** della finestra impostazioni (o con `stream-launcher add <modello>`,
+elenco con `stream-launcher templates`).
+
+Se un servizio dice che il browser o il sistema non è supportato, imposta lo
+user agent «Firefox su Windows».
+
 ## Installazione
 
 ```bash

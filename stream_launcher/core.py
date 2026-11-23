@@ -312,10 +312,26 @@ def remove_service(service_id: str, keep_profile: bool = False) -> None:
 
 
 def seed_default_services() -> list[Service]:
-    """Al primo avvio crea un servizio per ogni modello incluso."""
-    if SERVICES_DIR.is_dir() and any(SERVICES_DIR.glob("*.ini")):
-        return []
-    return [add_from_template(t.id, new_id=t.id) for t in list_templates()]
+    """Crea un servizio per ogni modello mai proposto prima.
+
+    I modelli già proposti sono registrati in settings.ini: così un aggiornamento
+    aggiunge i servizi nuovi, ma quelli che l'utente ha eliminato non ricompaiono.
+    """
+    cp = _settings()
+    if not cp.has_section("templates"):
+        cp["templates"] = {}
+    seeded = {t for t in cp["templates"].get("seeded", "").split(",") if t}
+    added = []
+    for t in list_templates():
+        if t.id in seeded:
+            continue
+        seeded.add(t.id)
+        if (SERVICES_DIR / f"{t.id}.ini").exists():
+            continue
+        added.append(add_from_template(t.id, new_id=t.id))
+    cp["templates"]["seeded"] = ",".join(sorted(seeded))
+    _write_settings(cp)
+    return added
 
 
 # --------------------------------------------------------------------------- impostazioni globali
@@ -334,12 +350,16 @@ def runtime_channel() -> str:
     return channel if channel in RUNTIME_URLS else DEFAULT_CHANNEL
 
 
-def _set_runtime_channel(channel: str) -> None:
-    cp = _settings()
-    cp["runtime"]["channel"] = channel
+def _write_settings(cp: configparser.ConfigParser) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         cp.write(f)
+
+
+def _set_runtime_channel(channel: str) -> None:
+    cp = _settings()
+    cp["runtime"]["channel"] = channel
+    _write_settings(cp)
 
 
 # --------------------------------------------------------------------------- runtime
