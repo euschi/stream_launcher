@@ -148,6 +148,7 @@ class ServiceEditor(Adw.NavigationPage):
         page = Adw.PreferencesPage()
         page.add(self._service_group())
         page.add(self._proxy_group())
+        page.add(self._password_group())
         page.add(self._addon_group())
         page.add(self._actions_group())
 
@@ -211,6 +212,55 @@ class ServiceEditor(Adw.NavigationPage):
         self.test_row.add_suffix(self.test_btn)
         g.add(self.test_row)
         return g
+
+    def _password_group(self) -> Adw.PreferencesGroup:
+        from .passwords import default_browser, domains_for
+
+        source = default_browser()
+        browser = source.name if source else "browser predefinito"
+        g = Adw.PreferencesGroup(
+            title="Password",
+            description=f"A ogni avvio i login di questo servizio salvati in {browser} vengono "
+            "importati nel profilo (nuovi e password cambiate). Solo i domini indicati.",
+        )
+        self.pw_switch = Adw.SwitchRow(title=f"Importa password da {browser}")
+        self.pw_switch.set_active(self.svc.passwords == "auto" and source is not None)
+        self.pw_switch.set_sensitive(source is not None)
+        if not source:
+            self.pw_switch.set_subtitle("Il browser predefinito non è Chrome, Chromium o Brave")
+        self.pw_domains = Adw.EntryRow(title=f"Domini (vuoto = {', '.join(domains_for(self.svc.url))})")
+        self.pw_domains.set_text(", ".join(self.svc.login_domains))
+
+        self.pw_check = Adw.ActionRow(title="Login trovati", subtitle="Controlla quali login verrebbero importati")
+        self.pw_check.set_use_markup(False)
+        self.pw_check.set_subtitle_lines(4)
+        btn = Gtk.Button(label="Controlla", valign=Gtk.Align.CENTER, sensitive=source is not None)
+        btn.connect("clicked", lambda _b: self._check_passwords())
+        self.pw_check.add_suffix(btn)
+        self.pw_switch.connect("notify::active", lambda *_: self._sync_sensitivity())
+        for row in (self.pw_switch, self.pw_domains, self.pw_check):
+            g.add(row)
+        return g
+
+    def _check_passwords(self) -> None:
+        from .passwords import PasswordError, default_browser, read_logins
+
+        svc = self._collect()
+        self.pw_check.set_subtitle("Controllo…")
+
+        def work():
+            source = default_browser()
+            try:
+                logins = read_logins(source, core.login_domains(svc))
+            except PasswordError as e:
+                return f"Errore: {e}"
+            if not logins:
+                return "Nessun login salvato per questi domini"
+            # Mai le password: solo siti e utenti.
+            people = sorted({f"{lg['username']} ({lg['origin'].split('://', 1)[1]})" for lg in logins})
+            return f"{len(logins)} login: " + ", ".join(people)
+
+        self.win.run_async(work, self.pw_check.set_subtitle)
 
     def _test_proxy(self) -> None:
         from .proxytest import ProxyTestError, test_proxy
@@ -281,6 +331,8 @@ class ServiceEditor(Adw.NavigationPage):
         active = _selected_key(self.proxy_type, PROXY_CHOICES) != "none"
         for row in self.proxy_rows:
             row.set_sensitive(active)
+        if hasattr(self, "pw_switch"):
+            self.pw_domains.set_sensitive(self.pw_switch.get_active())
 
     def _render_addons(self) -> None:
         for row in self.addon_rows:
@@ -369,6 +421,11 @@ class ServiceEditor(Adw.NavigationPage):
             user_agent=ua,
             addons=list(self.addons),
             proxy=proxy,
+            # Senza browser compatibile lo switch è spento: non sovrascrivo la scelta salvata.
+            passwords=("auto" if self.pw_switch.get_active() else "off")
+            if self.pw_switch.get_sensitive()
+            else self.svc.passwords,
+            login_domains=core.split_domains(self.pw_domains.get_text()),
         )
 
     def save(self) -> bool:

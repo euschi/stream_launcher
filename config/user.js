@@ -39,6 +39,11 @@ user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);
 user_pref("browser.translations.automaticallyPopup", false);
 user_pref("signon.rememberSignons", true);
 
+// --- Niente modalità provvisoria dopo chiusure forzate ---
+// Dopo 3 avvii non chiusi bene Firefox chiede se aprire la modalità provvisoria:
+// per un'app di streaming è solo un ostacolo (e senza finestra resta bloccato).
+user_pref("toolkit.startup.max_resumed_crashes", -1);
+
 // --- Meno scritture su disco ---
 // Su dischi lenti o saturi (HDD, fstrim in corso) ogni fsync blocca Firefox e
 // GNOME mostra "l'applicazione non risponde". La cache web va in RAM, la sessione

@@ -100,6 +100,9 @@ Le modifiche valgono dal prossimo avvio del servizio.
 | `config/policies.json` | policy del runtime: telemetria off, DRM sempre attivo |
 | `config/chrome/userChrome.css` | nasconde schede e barre |
 | `config/proxy-extension/` | estensione generata per proxy con credenziali / HTTPS |
+| `config/autoconfig/` | script di avvio del runtime: importa le password nel profilo |
+| `stream_launcher/passwords.py` | lettura e decifratura dei login di Chrome/Chromium/Brave |
+| `stream_launcher/proxytest.py` | test di connessione del proxy |
 
 Le icone dei servizi (marchi registrati) non sono nel repo: vengono scaricate
 all'installazione dai siti dei servizi.
@@ -114,6 +117,15 @@ all'installazione dai siti dei servizi.
   un'estensione interna e richiedono il runtime ESR. **Prova connessione**
   (finestra impostazioni) o `proxy-test` verificano con lo stesso protocollo di
   Firefox IP e paese di uscita (via ipinfo.io) e che il sito del servizio risponda.
+- **Password**: se il browser predefinito è Chrome, Chromium o Brave, a ogni
+  avvio di un servizio i login salvati lì per i suoi domini (es. Prime Video:
+  primevideo.com, amazon.it, amazon.com) vengono importati nel profilo: nuovi
+  login e password cambiate. Sono decifrati con la chiave del portachiavi GNOME,
+  passati a Firefox in un file con permessi 600 che viene cancellato appena
+  importato. Si disattiva per servizio (finestra impostazioni o
+  `stream-launcher passwords <id> off`); `passwords <id> check` mostra quali
+  login verrebbero importati (siti e utenti, mai le password). Per leggere da un
+  browser diverso dal predefinito: `STREAM_LAUNCHER_PASSWORD_BROWSER=chromium`.
 - **"L'applicazione non risponde"**: succede se runtime e profili stanno su un
   disco lento o saturo (HDD, trim in corso). Spostali su SSD con `storage move`.
 - **Addon Chrome**: vengono convertiti al volo (id Gecko, service worker →

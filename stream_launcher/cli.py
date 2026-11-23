@@ -93,6 +93,32 @@ def cmd_proxy_test(args) -> None:
     print(result.summary())
 
 
+def cmd_passwords(args) -> None:
+    from .passwords import PasswordError, default_browser, read_logins
+
+    svc = core.load_service(args.id)
+    if args.domains is not None:
+        svc.login_domains = core.split_domains(args.domains)
+    if args.action in ("on", "off"):
+        svc.passwords = "auto" if args.action == "on" else "off"
+    if args.action != "check" or args.domains is not None:
+        core.save_service(svc)
+    source = default_browser()
+    state = "attivo" if svc.passwords == "auto" else "disattivato"
+    print(f"{svc.name}: import password {state} — domini {', '.join(core.login_domains(svc))}")
+    if not source:
+        print("Il browser predefinito non è Chrome/Chromium/Brave: niente da importare.")
+        return
+    try:
+        logins = read_logins(source, core.login_domains(svc))
+    except PasswordError as e:
+        raise LauncherError(str(e)) from e
+    # Solo siti e utenti, mai le password.
+    print(f"{len(logins)} login trovati in {source.name}:")
+    for login in sorted(logins, key=lambda x: (x["origin"], x["username"])):
+        print(f"  {login['origin']}  {login['username']}")
+
+
 def cmd_useragent(args) -> None:
     svc = core.load_service(args.id)
     svc.user_agent = "" if args.value == "default" else args.value
@@ -208,6 +234,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("proxy-test", help="prova il proxy: IP e paese di uscita, raggiungibilità del servizio")
     s.add_argument("id")
     s.set_defaults(func=cmd_proxy_test)
+
+    s = sub.add_parser("passwords", help="password dal browser predefinito: on, off o check")
+    s.add_argument("id")
+    s.add_argument("action", choices=["on", "off", "check"])
+    s.add_argument("--domains", help="domini dei login, separati da virgola (vuoto = automatici)")
+    s.set_defaults(func=cmd_passwords)
 
     s = sub.add_parser("useragent", help="user agent: default, windows o stringa personalizzata")
     s.add_argument("id")

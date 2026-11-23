@@ -130,6 +130,10 @@ class Service:
     user_agent: str = ""
     addons: list[str] = field(default_factory=list)
     proxy: Proxy = field(default_factory=Proxy)
+    # "auto" = importa a ogni avvio le password dal browser predefinito, "off" = no.
+    passwords: str = "auto"
+    # Domini dei login da importare; vuoto = dominio dell'indirizzo + alias noti.
+    login_domains: list[str] = field(default_factory=list)
 
     @property
     def app_id(self) -> str:
@@ -159,6 +163,10 @@ def validate_id(service_id: str) -> str:
             f"ID «{service_id}» non valido: solo minuscole, cifre e trattini (max 48)."
         )
     return service_id
+
+
+def split_domains(text: str) -> list[str]:
+    return [d.strip().lower().lstrip(".") for d in re.split(r"[,\s]+", text) if d.strip()]
 
 
 def slugify(text: str) -> str:
@@ -200,6 +208,8 @@ def _parse(path: Path, service_id: str) -> Service:
         icon_url=s.get("icon_url", "").strip(),
         user_agent=s.get("user_agent", "").strip(),
         addons=[a.strip() for a in s.get("addons", "").splitlines() if a.strip()],
+        passwords="off" if s.get("passwords", "auto").strip().lower() == "off" else "auto",
+        login_domains=split_domains(s.get("login_domains", "")),
         proxy=Proxy(
             type=proxy_type,
             host=p.get("host", "").strip(),
@@ -247,6 +257,8 @@ def save_service(svc: Service) -> None:
         "icon_url": svc.icon_url,
         "user_agent": svc.user_agent,
         "addons": "\n".join(svc.addons),
+        "passwords": svc.passwords,
+        "login_domains": ", ".join(svc.login_domains),
     }
     cp["proxy"] = {
         "type": svc.proxy.type,
@@ -453,10 +465,23 @@ def install_runtime(channel: str | None = None) -> str:
 
 
 def install_policies() -> None:
-    """Policy del runtime (telemetria off, DRM sempre attivo): valgono per tutti i profili."""
+    """Policy e autoconfig del runtime: valgono per tutti i profili.
+
+    L'autoconfig (stream-launcher.cfg) importa all'avvio le password preparate dal launcher.
+    """
     dist = RUNTIME_DIR / "distribution"
     dist.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(ASSETS_DIR / "policies.json", dist / "policies.json")
+    prefs_dir = RUNTIME_DIR / "defaults" / "pref"
+    prefs_dir.mkdir(parents=True, exist_ok=True)
+    _copy_if_changed(ASSETS_DIR / "autoconfig" / "autoconfig.js", prefs_dir / "autoconfig.js")
+    _copy_if_changed(ASSETS_DIR / "autoconfig" / "stream-launcher.cfg", RUNTIME_DIR / "stream-launcher.cfg")
+
+
+def _copy_if_changed(src: Path, dst: Path) -> None:
+    data = src.read_bytes()
+    if not dst.is_file() or dst.read_bytes() != data:
+        dst.write_bytes(data)
 
 
 # --------------------------------------------------------------------------- profilo
@@ -556,6 +581,33 @@ def prepare_profile(svc: Service, log=print) -> None:
     (profile / "user.js").write_text(base + "\n".join(generated) + "\n", encoding="utf-8")
     shutil.copyfile(ASSETS_DIR / "chrome" / "userChrome.css", profile / "chrome" / "userChrome.css")
     sync_addons(svc, log)
+    sync_passwords(svc, log)
+
+
+def login_domains(svc: Service) -> list[str]:
+    from .passwords import domains_for
+
+    return svc.login_domains or domains_for(svc.url)
+
+
+def sync_passwords(svc: Service, log=print) -> int:
+    """Prepara l'import delle password del browser predefinito; ritorna quante."""
+    from .passwords import PasswordError, default_browser, read_logins, stage_import
+
+    if svc.passwords == "off":
+        stage_import(svc.profile_dir, [])  # toglie eventuali residui
+        return 0
+    source = default_browser()
+    if not source:
+        log("Password: il browser predefinito non è Chrome/Chromium/Brave, niente import.")
+        return 0
+    try:
+        logins = read_logins(source, login_domains(svc))
+    except PasswordError as e:
+        log(f"Password non importate: {e}")
+        return 0
+    stage_import(svc.profile_dir, logins)
+    return len(logins)
 
 
 # --------------------------------------------------------------------------- addon
@@ -874,6 +926,7 @@ def launch(svc: Service) -> None:
     if profile_running(svc.profile_dir):
         # Già aperto: Firefox inoltra la richiesta all'istanza esistente (nuova finestra).
         os.execve(args[0], args, env)
+    install_policies()  # aggiorna l'autoconfig anche sui runtime installati prima
     prepare_profile(svc, log=lambda m: print(m, file=sys.stderr))
     os.execve(args[0], [*args, svc.url], env)
 
