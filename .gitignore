@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+build/
+dist/
+windows/icon.ico
+*.spec

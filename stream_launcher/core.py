@@ -1,7 +1,8 @@
 """Logica condivisa: servizi, runtime Firefox, profili, addon, proxy e voci di menu.
 
 Ogni servizio è un file INI in ~/.config/stream-launcher/services/<id>.ini e ha
-un profilo Firefox tutto suo in ~/.local/share/stream-launcher/profiles/<id>.
+un profilo Firefox tutto suo in ~/.local/share/stream-launcher/profiles/<id>
+(su Windows: %APPDATA%\\stream-launcher e %LOCALAPPDATA%\\stream-launcher).
 Il runtime Firefox portatile è unico e condiviso da tutti i servizi.
 """
 from __future__ import annotations
@@ -12,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -22,19 +24,27 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 APP = "stream-launcher"
+IS_WIN = sys.platform == "win32"
+FROZEN = getattr(sys, "frozen", False)  # eseguibile PyInstaller (Windows)
 
 
-def _xdg(var: str, default: str) -> Path:
+def _env_dir(var: str, default: str) -> Path:
     value = os.environ.get(var)
     return Path(value) if value else Path.home() / default
 
 
-XDG_DATA = _xdg("XDG_DATA_HOME", ".local/share")
-DATA_DIR = XDG_DATA / APP
-CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config") / APP
+if IS_WIN:
+    DATA_DIR = _env_dir("LOCALAPPDATA", "AppData/Local") / APP
+    CONFIG_DIR = _env_dir("APPDATA", "AppData/Roaming") / APP
+    # Cartella del menu Start: collegamenti .lnk, uno per servizio.
+    APPS_DIR = _env_dir("APPDATA", "AppData/Roaming") / "Microsoft/Windows/Start Menu/Programs/Stream Launcher"
+else:
+    XDG_DATA = _env_dir("XDG_DATA_HOME", ".local/share")
+    DATA_DIR = XDG_DATA / APP
+    CONFIG_DIR = _env_dir("XDG_CONFIG_HOME", ".config") / APP
+    APPS_DIR = XDG_DATA / "applications"
 SERVICES_DIR = CONFIG_DIR / "services"
 SETTINGS_FILE = CONFIG_DIR / "settings.ini"
-APPS_DIR = XDG_DATA / "applications"
 ICONS_DIR = DATA_DIR / "icons"
 LOG_FILE = DATA_DIR / "launch.log"
 
@@ -53,18 +63,17 @@ RUNTIME_DIR = STORAGE_DIR / "firefox"
 PROFILES_DIR = STORAGE_DIR / "profiles"
 ADDON_CACHE = STORAGE_DIR / "addons-cache"
 
-# Radice dell'applicazione (repo o copia installata): contiene config/, templates/, bin/.
-APP_ROOT = Path(__file__).resolve().parent.parent
+# Radice dell'applicazione (repo, copia installata o eseguibile): contiene config/, templates/, bin/.
+APP_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
 ASSETS_DIR = APP_ROOT / "config"
 TEMPLATES_DIR = APP_ROOT / "templates"
 CLI_PATH = APP_ROOT / "bin" / APP
 
-SETTINGS_APP_ID = "dev.streamlauncher.Settings"
-
+_OS = "win64" if IS_WIN else "linux64"
 RUNTIME_URLS = {
     # ESR permette addon non firmati (addon Chrome convertiti, estensione proxy).
-    "esr": "https://download.mozilla.org/?product=firefox-esr-latest-ssl&os=linux64&lang=it",
-    "release": "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=it",
+    "esr": f"https://download.mozilla.org/?product=firefox-esr-latest-ssl&os={_OS}&lang=it",
+    "release": f"https://download.mozilla.org/?product=firefox-latest-ssl&os={_OS}&lang=it",
 }
 DEFAULT_CHANNEL = "esr"
 
@@ -91,6 +100,25 @@ MANAGED_PREFS = (
 
 class LauncherError(Exception):
     """Errore mostrabile all'utente così com'è."""
+
+
+def self_command(*args: str) -> list[str]:
+    """Riga di comando per rilanciare il launcher (eseguibile o script) con `args`."""
+    if FROZEN:
+        return [sys.executable, *args]
+    python = Path(sys.executable)
+    if IS_WIN and (python.parent / "pythonw.exe").is_file():
+        python = python.parent / "pythonw.exe"  # niente finestra di console
+    return [str(python), str(CLI_PATH), *args]
+
+
+def spawn_detached(cmd: list[str], **kwargs) -> subprocess.Popen:
+    """Processo staccato dal chiamante: sopravvive alla sua chiusura."""
+    if IS_WIN:
+        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(cmd, stdin=subprocess.DEVNULL, **kwargs)
 
 
 # --------------------------------------------------------------------------- servizi
@@ -313,7 +341,7 @@ def duplicate_service(
             src.profile_dir,
             dst.profile_dir,
             symlinks=True,
-            ignore=shutil.ignore_patterns("lock", ".parentlock", "cache2", "startupCache"),
+            ignore=shutil.ignore_patterns("lock", ".parentlock", "parent.lock", "cache2", "startupCache"),
         )
     save_service(dst)
     if src.icon_path.is_file():
@@ -328,11 +356,11 @@ def remove_service(service_id: str, keep_profile: bool = False) -> None:
     if profile_running(svc.profile_dir):
         raise LauncherError(f"Chiudi «{svc.name}» prima di eliminarlo.")
     svc.config_path.unlink(missing_ok=True)
-    svc.desktop_path.unlink(missing_ok=True)
     svc.icon_path.unlink(missing_ok=True)
+    svc.icon_path.with_suffix(".ico").unlink(missing_ok=True)
     if not keep_profile:
         shutil.rmtree(svc.profile_dir, ignore_errors=True)
-    update_desktop_database()
+    remove_desktop_entry(svc)
 
 
 def seed_default_services() -> list[Service]:
@@ -421,7 +449,7 @@ def move_storage(target: str) -> Path:
 
 
 def firefox_binary() -> Path:
-    return RUNTIME_DIR / "firefox"
+    return RUNTIME_DIR / ("firefox.exe" if IS_WIN else "firefox")
 
 
 def runtime_installed() -> bool:
@@ -447,18 +475,46 @@ def _download(url: str, dest: Path) -> None:
         raise LauncherError(f"Download fallito ({url}): {e}") from e
 
 
+def _download_bytes(url: str) -> bytes:
+    req = urllib.request.Request(url, headers=HTTP_HEADERS)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.read()
+    except OSError as e:
+        raise LauncherError(f"Download fallito ({url}): {e}") from e
+
+
+def _extract_runtime(archive: Path, tmp: Path) -> Path:
+    """Estrae il runtime scaricato e ritorna la cartella che contiene l'eseguibile."""
+    out = tmp / "out"
+    if IS_WIN:
+        # Installer completo di Firefox: /ExtractDir scompatta senza installare né chiedere permessi.
+        subprocess.run([str(archive), f"/ExtractDir={out}"], check=True, timeout=600)
+    else:
+        out.mkdir()
+        subprocess.run(["tar", "-xf", str(archive), "-C", str(out)], check=True)
+    exe = next(out.rglob(firefox_binary().name), None)
+    if not exe:
+        raise LauncherError("Archivio del runtime Firefox non riconosciuto.")
+    return exe.parent
+
+
 def install_runtime(channel: str | None = None) -> str:
     channel = channel or runtime_channel()
     if channel not in RUNTIME_URLS:
         raise LauncherError(f"Canale «{channel}» non valido (esr o release).")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=DATA_DIR) as tmp:
-        archive = Path(tmp) / "firefox.tar"
+        archive = Path(tmp) / ("firefox-setup.exe" if IS_WIN else "firefox.tar")
         print(f"Scarico il runtime Firefox ({channel})...", file=sys.stderr)
         _download(RUNTIME_URLS[channel], archive)
-        subprocess.run(["tar", "-xf", str(archive), "-C", tmp], check=True)
+        try:
+            folder = _extract_runtime(archive, Path(tmp))
+        except (OSError, subprocess.SubprocessError) as e:
+            raise LauncherError(f"Estrazione del runtime Firefox fallita: {e}") from e
         shutil.rmtree(RUNTIME_DIR, ignore_errors=True)
-        shutil.move(str(Path(tmp) / "firefox"), RUNTIME_DIR)
+        RUNTIME_DIR.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(folder), RUNTIME_DIR)
     _set_runtime_channel(channel)
     install_policies()
     return runtime_version()
@@ -488,7 +544,16 @@ def _copy_if_changed(src: Path, dst: Path) -> None:
 
 
 def profile_running(profile: Path) -> bool:
-    """Firefox su Linux crea il symlink `lock` -> "host:+PID" finché è aperto."""
+    """Firefox su Linux crea il symlink `lock` -> "host:+PID" finché è aperto;
+    su Windows tiene aperto `parent.lock` in modo esclusivo."""
+    if IS_WIN:
+        try:
+            with open(profile / "parent.lock", "rb"):
+                return False
+        except FileNotFoundError:
+            return False
+        except PermissionError:
+            return True
     try:
         target = os.readlink(profile / "lock")
     except OSError:
@@ -715,10 +780,7 @@ def _fetch_amo(slug: str) -> tuple[str, bytes, bool]:
         file_url = info["current_version"]["file"]["url"]
     except (OSError, KeyError, ValueError) as e:
         raise LauncherError(f"addon «{slug}» non trovato su addons.mozilla.org") from e
-    with tempfile.NamedTemporaryFile() as tmp:
-        _download(file_url, Path(tmp.name))
-        data = Path(tmp.name).read_bytes()
-    gid, content, signed = _to_firefox_xpi(data, slug)
+    gid, content, signed = _to_firefox_xpi(_download_bytes(file_url), slug)
     return info.get("guid") or gid, content, signed
 
 
@@ -728,10 +790,7 @@ def _fetch_chrome(chrome_id: str) -> tuple[str, bytes, bool]:
         "&prodversion=131.0&acceptformat=crx2,crx3"
         f"&x=id%3D{chrome_id}%26installsource%3Dondemand%26uc"
     )
-    with tempfile.NamedTemporaryFile() as tmp:
-        _download(url, Path(tmp.name))
-        data = Path(tmp.name).read_bytes()
-    return _to_firefox_xpi(data, chrome_id)
+    return _to_firefox_xpi(_download_bytes(url), chrome_id)
 
 
 def resolve_addon(spec: str, refresh: bool = False) -> AddonFile:
@@ -839,6 +898,47 @@ def fetch_icon(svc: Service) -> None:
         svc.icon_path.unlink(missing_ok=True)
 
 
+def refresh_desktop_entry(svc: Service, icon: bool = True) -> None:
+    if icon and not svc.icon_path.is_file():
+        fetch_icon(svc)
+    if IS_WIN:
+        _sync_shortcuts()  # il nome del .lnk è il nome del servizio: rinomina = ricrea
+        return
+    write_desktop_entry(svc)
+    update_desktop_database()
+
+
+def remove_desktop_entry(svc: Service) -> None:
+    if IS_WIN:
+        _sync_shortcuts()
+        return
+    svc.desktop_path.unlink(missing_ok=True)
+    update_desktop_database()
+
+
+def sync_desktop_entries() -> None:
+    """Ricrea le voci di menu e toglie quelle di servizi non più esistenti."""
+    services = list_services()
+    for svc in services:
+        if not svc.icon_path.is_file():
+            fetch_icon(svc)
+    if IS_WIN:
+        _sync_shortcuts(services)
+        return
+    ids = {s.app_id for s in services}
+    if APPS_DIR.is_dir():
+        for path in APPS_DIR.glob(f"{APP}-*.desktop"):
+            if path.stem not in ids:
+                path.unlink()
+    for svc in services:
+        write_desktop_entry(svc)
+    write_settings_entry()
+    update_desktop_database()
+
+
+# --- Linux: file .desktop
+
+
 def _desktop_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("\n", " ")
 
@@ -877,7 +977,7 @@ def write_settings_entry() -> None:
         f"Icon={ASSETS_DIR / 'icon.svg'}\n"
         "Terminal=false\n"
         "Categories=AudioVideo;Video;Settings;\n"
-        f"StartupWMClass={SETTINGS_APP_ID}\n",
+        f"StartupWMClass={APP}\n",
         encoding="utf-8",
     )
 
@@ -889,55 +989,102 @@ def update_desktop_database() -> None:
         pass
 
 
-def refresh_desktop_entry(svc: Service, icon: bool = True) -> None:
-    if icon and not svc.icon_path.is_file():
-        fetch_icon(svc)
-    write_desktop_entry(svc)
-    update_desktop_database()
+# --- Windows: collegamenti .lnk nel menu Start
+
+_SHORTCUT_PS = r"""
+$sh = New-Object -ComObject WScript.Shell
+foreach ($e in (ConvertFrom-Json $env:SL_SHORTCUTS)) {
+  $s = $sh.CreateShortcut($e.path)
+  $s.TargetPath = $e.target
+  $s.Arguments = $e.args
+  $s.WorkingDirectory = $e.dir
+  $s.Description = $e.desc
+  if ($e.icon) { $s.IconLocation = $e.icon }
+  $s.Save()
+}
+"""
 
 
-def sync_desktop_entries() -> None:
-    """Ricrea le voci di menu e toglie quelle di servizi non più esistenti."""
-    services = list_services()
-    ids = {s.app_id for s in services}
-    if APPS_DIR.is_dir():
-        for path in APPS_DIR.glob(f"{APP}-*.desktop"):
-            if path.stem not in ids:
-                path.unlink()
+def _png_to_ico(svc: Service) -> str:
+    """Windows vuole icone .ico per i collegamenti: un .ico può contenere un PNG così com'è."""
+    try:
+        data = svc.icon_path.read_bytes()
+    except OSError:
+        return ""
+    ico = svc.icon_path.with_suffix(".ico")
+    if data[:4] == b"\0\0\1\0":
+        ico.write_bytes(data)
+    elif data[:8] == b"\x89PNG\r\n\x1a\n":
+        w, h = (int.from_bytes(data[i:i + 4], "big") for i in (16, 20))
+        header = struct.pack("<HHHBBBBHHII", 0, 1, 1, w % 256, h % 256, 0, 0, 1, 32, len(data), 22)
+        ico.write_bytes(header + data)
+    else:
+        return ""
+    return str(ico)
+
+
+def _sync_shortcuts(services: list[Service] | None = None) -> None:
+    services = list_services() if services is None else services
+    APPS_DIR.mkdir(parents=True, exist_ok=True)
+    for old in APPS_DIR.glob("*.lnk"):
+        old.unlink(missing_ok=True)
+    target, *base_args = self_command()
+    prefix = subprocess.list2cmdline(base_args)
+
+    def entry(name: str, args: str, desc: str, icon: str = "") -> dict:
+        return {
+            "path": str(APPS_DIR / f"{name}.lnk"),
+            "target": target,
+            "args": f"{prefix} {args}".strip(),
+            "dir": str(Path(target).parent),
+            "desc": desc,
+            "icon": icon,
+        }
+
+    entries = [entry("Stream Launcher", "settings", "Gestisci i servizi di streaming: proxy, addon, duplicati")]
+    used = {"stream launcher"}
     for svc in services:
-        if not svc.icon_path.is_file():
-            fetch_icon(svc)
-        write_desktop_entry(svc)
-    write_settings_entry()
-    update_desktop_database()
+        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", svc.name).strip(" .") or svc.id
+        if name.lower() in used:
+            name = f"{name} ({svc.id})"
+        used.add(name.lower())
+        entries.append(entry(name, f"run {svc.id}", f"{svc.name} su motore Firefox ({svc.proxy.describe()})", _png_to_ico(svc)))
+    env = {**os.environ, "SL_SHORTCUTS": json.dumps(entries)}
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", _SHORTCUT_PS],
+            env=env, capture_output=True, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW, check=True,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"Collegamenti del menu Start non creati: {e}", file=sys.stderr)
 
 
 # --------------------------------------------------------------------------- avvio
 
 
 def launch(svc: Service) -> None:
-    """Sostituisce il processo corrente con Firefox sul profilo del servizio."""
+    """Avvia Firefox sul profilo del servizio (su Linux sostituisce il processo corrente)."""
     if not runtime_installed():
         raise LauncherError("Runtime Firefox non installato: esegui «stream-launcher runtime install».")
     env = os.environ.copy()
-    if env.get("XDG_SESSION_TYPE") == "wayland":
-        env["MOZ_ENABLE_WAYLAND"] = "1"
-    args = [str(firefox_binary()), "--name", svc.app_id, "--class", svc.app_id, "--profile", str(svc.profile_dir)]
-    if profile_running(svc.profile_dir):
-        # Già aperto: Firefox inoltra la richiesta all'istanza esistente (nuova finestra).
+    if IS_WIN:
+        args = [str(firefox_binary()), "--profile", str(svc.profile_dir)]
+    else:
+        if env.get("XDG_SESSION_TYPE") == "wayland":
+            env["MOZ_ENABLE_WAYLAND"] = "1"
+        args = [str(firefox_binary()), "--name", svc.app_id, "--class", svc.app_id, "--profile", str(svc.profile_dir)]
+    if not profile_running(svc.profile_dir):
+        install_policies()  # aggiorna l'autoconfig anche sui runtime installati prima
+        prepare_profile(svc, log=lambda m: print(m, file=sys.stderr))
+        args.append(svc.url)
+    # Già aperto: Firefox inoltra la richiesta all'istanza esistente (nuova finestra).
+    if IS_WIN:
+        spawn_detached(args, env=env)
+    else:
         os.execve(args[0], args, env)
-    install_policies()  # aggiorna l'autoconfig anche sui runtime installati prima
-    prepare_profile(svc, log=lambda m: print(m, file=sys.stderr))
-    os.execve(args[0], [*args, svc.url], env)
 
 
 def launch_detached(service_id: str) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(LOG_FILE, "ab") as log:
-        subprocess.Popen(
-            [sys.executable, str(CLI_PATH), "run", service_id],
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=log,
-            start_new_session=True,
-        )
+        spawn_detached(self_command("run", service_id), stdout=log, stderr=log)

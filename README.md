@@ -1,6 +1,6 @@
 # Stream Launcher
 
-Launcher per servizi di streaming su Linux (Netflix, Disney+, Prime Video,
+Launcher per servizi di streaming su Linux e Windows (Netflix, Disney+, Prime Video,
 Paramount+, …) basato sul motore di Firefox (Gecko), senza bisogno di avere
 Firefox installato.
 
@@ -43,13 +43,29 @@ user agent «Firefox su Windows».
 ./install.sh --uninstall  # rimuove app, runtime, profili, voci di menu e tray
 ```
 
-Requisiti: `python3`, `python-gobject` + `libadwaita` (finestra impostazioni),
-`libayatana-appindicator` e, su GNOME, l'estensione AppIndicator (tray).
+Requisiti: `python3` e `PySide6` (finestra e tray; Arch: `sudo pacman -S pyside6`)
+e, su GNOME, l'estensione AppIndicator per la tray. Senza PySide6 `install.sh` si
+ferma senza toccare l'installazione esistente.
+
+### Windows
+
+Scarica `StreamLauncher-Setup-<versione>.exe` dagli artifact della action
+**Windows** (o dalle release, per le versioni taggate) e installalo: non servono
+Python né permessi di amministratore. L'installer scarica il runtime Firefox,
+crea i servizi con le loro voci nel menu Start (cartella *Stream Launcher*) e
+avvia la tray anche al login. La disinstallazione toglie app, runtime e profili;
+la configurazione in `%APPDATA%\stream-launcher` resta.
+
+`StreamLauncher.exe` accetta gli stessi comandi della versione Linux, ad esempio
+`StreamLauncher.exe list` da un prompt. Le password si importano da Chrome, Edge,
+Chromium o Brave: i login che il browser ha già cifrato con la cifratura legata
+all'app (prefisso `v20`) vengono saltati.
 
 ## Uso
 
-- **Tray**: un clic sull'icona elenca i servizi; «Impostazioni…» apre la gestione.
-  La tray parte da sola al login.
+- **Tray**: il menu dell'icona elenca i servizi; «Impostazioni…» apre la gestione.
+  Su Windows basta il clic sinistro, su Linux il clic sinistro apre le impostazioni
+  e il menu è sul tasto destro. La tray parte da sola al login.
 - **Menu applicazioni**: ogni servizio ha la sua voce; tasto destro → *Impostazioni*.
 - **Stream Launcher** (menu) apre la finestra impostazioni: aggiungi da modello (+),
   modifica nome, indirizzo, user agent, proxy e addon, duplica o elimina.
@@ -85,6 +101,9 @@ Le modifiche valgono dal prossimo avvio del servizio.
 | `~/.local/share/stream-launcher/app/` | copia installata dell'applicazione |
 | `~/.local/share/stream-launcher/launch.log` | log degli avvii fatti da tray/impostazioni |
 
+Su Windows: configurazione in `%APPDATA%\stream-launcher`, runtime, profili e
+log in `%LOCALAPPDATA%\stream-launcher`, app in `%LOCALAPPDATA%\Programs\Stream Launcher`.
+
 ## Struttura del repo
 
 | File | Ruolo |
@@ -93,8 +112,9 @@ Le modifiche valgono dal prossimo avvio del servizio.
 | `bin/stream-launcher` | punto d'ingresso (CLI) |
 | `stream_launcher/core.py` | servizi, runtime, profili, proxy, addon, voci di menu |
 | `stream_launcher/cli.py` | comandi da terminale |
-| `stream_launcher/gui.py` | finestra impostazioni (GTK4 + libadwaita) |
-| `stream_launcher/tray.py` | icona nella tray (GTK3 + AyatanaAppIndicator, processo separato) |
+| `stream_launcher/app.py` | finestra impostazioni e tray (Qt/PySide6, un solo processo per utente) |
+| `windows/` | installer Inno Setup, icona `.ico`, test su Windows reale |
+| `.github/workflows/windows.yml` | test, eseguibile (PyInstaller) e installer per Windows |
 | `templates/*.ini` | modelli dei servizi predefiniti |
 | `config/user.js` | preferenze comuni dei profili (DRM, WebRender, addon) |
 | `config/policies.json` | policy del runtime: telemetria off, DRM sempre attivo |

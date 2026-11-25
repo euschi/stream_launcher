@@ -24,6 +24,8 @@ user_pref("browser.tabs.inTitlebar", 0);
 user_pref("browser.link.open_newwindow", 1);
 user_pref("browser.link.open_newwindow.restriction", 0);
 user_pref("browser.tabs.warnOnClose", false);
+// Windows: ogni profilo (servizio) è un'icona a sé nella barra delle applicazioni.
+user_pref("taskbar.grouping.useprofile", true);
 user_pref("browser.warnOnQuit", false);
 user_pref("browser.sessionstore.resume_from_crash", false);
 user_pref("full-screen-api.warning.timeout", 0);

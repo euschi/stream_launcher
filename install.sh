@@ -32,7 +32,8 @@ remove_legacy() {
 }
 
 stop_tray() {
-  pkill -f "$APP_DIR/bin/stream-launcher tray" 2>/dev/null || true
+  # La tray è il processo Qt unico: può essere partita come "tray" o come "settings".
+  pkill -f "$APP_DIR/bin/stream-launcher (tray|settings)" 2>/dev/null || true
 }
 
 if [[ "${1:-}" == "--uninstall" ]]; then
@@ -53,13 +54,12 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 fi
 
 command -v python3 >/dev/null || { echo "Serve python3." >&2; exit 1; }
-if ! python3 -c 'import gi; gi.require_version("Gtk","4.0"); gi.require_version("Adw","1")' 2>/dev/null; then
-  echo "Attenzione: GTK4/libadwaita per Python non trovati: niente finestra Impostazioni"
-  echo "  (Arch: sudo pacman -S python-gobject libadwaita). La riga di comando funziona comunque."
-fi
-if ! python3 -c 'import gi; gi.require_version("AyatanaAppIndicator3","0.1")' 2>/dev/null; then
-  echo "Attenzione: libayatana-appindicator non trovata: niente icona nella tray"
-  echo "  (Arch: sudo pacman -S libayatana-appindicator; su GNOME serve l'estensione AppIndicator)."
+# Finestra e tray sono in Qt: senza PySide6 non tocco l'installazione esistente.
+if ! python3 -c 'import PySide6.QtWidgets' 2>/dev/null; then
+  echo "Serve PySide6 per finestra e tray. Installalo e rilancia:" >&2
+  echo "  Arch: sudo pacman -S pyside6   ·   Debian/Ubuntu: sudo apt install python3-pyside6.qtwidgets" >&2
+  echo "Su GNOME, per la tray serve l'estensione AppIndicator. L'installazione attuale non è stata modificata." >&2
+  exit 1
 fi
 
 # Copia dell'applicazione: le voci di menu puntano qui, non al repo.
