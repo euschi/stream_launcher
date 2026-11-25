@@ -1024,6 +1024,17 @@ def remove_desktop_entry(svc: Service) -> None:
     update_desktop_database()
 
 
+def entries_outdated() -> bool:
+    """Le voci di menu e l'avvio automatico puntano a un'altra copia del programma?
+    Succede passando da install.sh al pacchetto (o viceversa). Mai dal repo di sviluppo."""
+    if IS_WIN or (APP_ROOT / ".git").exists():
+        return False
+    try:
+        return f"Exec={CLI_PATH} settings" not in (APPS_DIR / f"{APP}.desktop").read_text(encoding="utf-8")
+    except OSError:
+        return True
+
+
 def sync_desktop_entries() -> None:
     """Ricrea le voci di menu e toglie quelle di servizi non più esistenti."""
     services = list_services()

@@ -1,0 +1,46 @@
+# Pacchetto locale di Stream Launcher per Arch Linux.
+#   cd packaging/arch && makepkg -si
+# Si costruisce dal ramo main (produzione) di questo repository.
+pkgname=stream-launcher
+pkgver=1.01.00
+pkgrel=1
+pkgdesc="Servizi di streaming in finestre Firefox separate: profili, proxy, addon e password"
+arch=('any')
+url="https://github.com/euschi/stream_launcher"
+license=('custom')
+depends=('python' 'pyside6' 'libsecret' 'tar')
+makedepends=('git')
+optdepends=('gnome-shell-extension-appindicator: icona nella tray su GNOME'
+            'desktop-file-utils: aggiornamento immediato del menu applicazioni')
+install=stream-launcher.install
+source=("stream-launcher::git+file://${startdir}/../..#branch=main")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd stream-launcher
+  git describe --long --tags | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+package() {
+  cd stream-launcher
+  local app="$pkgdir/usr/share/stream-launcher"
+  install -d "$app"
+  cp -r stream_launcher config templates bin "$app/"
+  chmod 755 "$app/bin/stream-launcher"
+  python -m compileall -q -d /usr/share/stream-launcher "$app/stream_launcher"
+  install -d "$pkgdir/usr/bin"
+  ln -s /usr/share/stream-launcher/bin/stream-launcher "$pkgdir/usr/bin/stream-launcher"
+  install -Dm644 config/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/stream-launcher.svg"
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/stream-launcher.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Stream Launcher
+Comment=Gestisci i servizi di streaming: proxy, addon, duplicati
+Exec=/usr/bin/stream-launcher settings
+Icon=stream-launcher
+Terminal=false
+Categories=AudioVideo;Video;Settings;
+StartupWMClass=stream-launcher
+DESKTOP
+  install -Dm644 README.md "$pkgdir/usr/share/doc/stream-launcher/README.md"
+}

@@ -54,6 +54,10 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   exit 0
 fi
 
+if command -v pacman >/dev/null && pacman -Q stream-launcher >/dev/null 2>&1; then
+  echo "Stream Launcher è installato come pacchetto: aggiornalo con «cd packaging/arch && makepkg -si»." >&2
+  exit 1
+fi
 command -v python3 >/dev/null || { echo "Serve python3." >&2; exit 1; }
 # Finestra e tray sono in Qt: senza PySide6 non tocco l'installazione esistente.
 if ! python3 -c 'import PySide6.QtWidgets' 2>/dev/null; then

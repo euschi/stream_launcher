@@ -43,7 +43,15 @@ user agent «Firefox su Windows».
 ./install.sh --uninstall  # rimuove app, runtime, profili, voci di menu e tray
 ```
 
-Requisiti: `python3` e `PySide6` (finestra e tray; Arch: `sudo pacman -S pyside6`)
+Su **Arch Linux** conviene il pacchetto, così pacman lo conosce e porta da solo
+le dipendenze (si costruisce dal ramo `main`):
+
+```bash
+cd packaging/arch && makepkg -si     # installa o aggiorna
+sudo pacman -R stream-launcher       # rimuove (dati e configurazione restano nella home)
+```
+
+Le altre distribuzioni usano `install.sh`. Requisiti: `python3` e `PySide6` (finestra e tray; Arch: `sudo pacman -S pyside6`)
 e, su GNOME, l'estensione AppIndicator per la tray. Senza PySide6 `install.sh` si
 ferma senza toccare l'installazione esistente.
 
