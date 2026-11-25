@@ -189,7 +189,10 @@ def cmd_init(args) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from . import __version__
+
     p = argparse.ArgumentParser(prog="stream-launcher", description="Servizi di streaming su runtime Firefox portatile.")
+    p.add_argument("--version", action="version", version=f"stream-launcher {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list", help="elenca i servizi").set_defaults(func=cmd_list)
