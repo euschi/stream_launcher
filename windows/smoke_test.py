@@ -72,6 +72,10 @@ def shortcut_aumid(path: Path) -> str:
 
 
 def firefox_window_aumids() -> list:
+    return [aumid for _hwnd, aumid in firefox_windows()]
+
+
+def firefox_windows() -> list:
     found = []
 
     @WINFUNCTYPE(c_int, c_void_p, c_void_p)
@@ -81,7 +85,7 @@ def firefox_window_aumids() -> list:
         if name.value == "MozillaWindowClass" and user32.IsWindowVisible(c_void_p(hwnd)):
             store = c_void_p()
             if shell32.SHGetPropertyStoreForWindow(c_void_p(hwnd), byref(ws.GUID.of(ws.IID_PROPERTY_STORE)), byref(store)) >= 0:
-                found.append(read_aumid(store))
+                found.append((hwnd, read_aumid(store)))
         return 1
 
     user32.EnumWindows(visit, 0)
@@ -104,6 +108,34 @@ for _ in range(90):
 print(f"     finestre Firefox: {windows}, atteso: {expected}")
 check(expected in windows, "finestra di Firefox raggruppata sotto il collegamento del servizio (icona e nome)")
 check(core.profile_running(svc.profile_dir), "profilo in uso rilevato")
+
+
+class BITMAP(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_long), ("width", ctypes.c_long), ("height", ctypes.c_long),
+                ("width_bytes", ctypes.c_long), ("planes", ctypes.c_ushort), ("bits", ctypes.c_ushort),
+                ("data", c_void_p)]
+
+
+class ICONINFO(ctypes.Structure):
+    _fields_ = [("icon", c_int), ("x", ctypes.c_ulong), ("y", ctypes.c_ulong), ("mask", c_void_p), ("color", c_void_p)]
+
+
+def big_icon_width(hwnd) -> int:
+    """Larghezza dell'icona grande della finestra (quella della barra delle applicazioni)."""
+    user32.SendMessageW.restype = c_void_p
+    user32.SendMessageW.argtypes = (c_void_p, ctypes.c_uint, ctypes.c_size_t, c_void_p)
+    icon = user32.SendMessageW(c_void_p(hwnd), 0x7F, 1, None)  # WM_GETICON, ICON_BIG
+    info, bmp = ICONINFO(), BITMAP()
+    if not icon or not user32.GetIconInfo(c_void_p(icon), byref(info)):
+        return 0
+    ctypes.windll.gdi32.GetObjectW(c_void_p(info.color or info.mask), ctypes.sizeof(bmp), byref(bmp))
+    return bmp.width
+
+
+time.sleep(3)  # l'autoconfig assegna l'icona a fine avvio della finestra
+widths = [big_icon_width(hwnd) for hwnd, aumid in firefox_windows() if aumid == expected]
+print(f"     icona grande della finestra: {widths} px (Firefox da solo usa 32, il servizio 48)")
+check(widths and all(w == 48 for w in widths), "finestra con l'icona del servizio (barra delle applicazioni)")
 ext = {p.name for p in (svc.profile_dir / "extensions").glob("*.xpi")}
 check(f"{core.PROXY_ADDON_ID}.xpi" in ext and len(ext) == 2, f"addon nel profilo: {sorted(ext)}")
 subprocess.run(["taskkill", "/F", "/T", "/IM", "firefox.exe"], capture_output=True)
