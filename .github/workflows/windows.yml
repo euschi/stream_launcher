@@ -1,0 +1,97 @@
+name: Windows
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PSNativeCommandUseErrorActionPreference: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Dipendenze
+        run: python -m pip install PySide6 cryptography pyinstaller
+
+      - name: Test (sorgenti, cartelle utente temporanee)
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:APPDATA = "$env:RUNNER_TEMP\appdata"; $env:LOCALAPPDATA = "$env:RUNNER_TEMP\localappdata"
+          New-Item -ItemType Directory -Force $env:APPDATA, $env:LOCALAPPDATA | Out-Null
+          python -m stream_launcher init
+          python -m stream_launcher list
+          python windows/smoke_test.py
+
+      - name: Eseguibile (PyInstaller)
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          python windows/make_icon.py
+          pyinstaller --noconfirm --windowed --name StreamLauncher --icon windows/icon.ico --paths . `
+            --hidden-import PySide6.QtSvg --add-data "config;config" --add-data "templates;templates" `
+            stream_launcher/__main__.py
+
+      - name: Test dell'eseguibile
+        run: |
+          $env:APPDATA = "$env:RUNNER_TEMP\appdata2"; $env:LOCALAPPDATA = "$env:RUNNER_TEMP\localappdata2"
+          New-Item -ItemType Directory -Force $env:APPDATA, $env:LOCALAPPDATA | Out-Null
+          $exe = "dist\StreamLauncher\StreamLauncher.exe"
+          $out = & $exe templates | Out-String
+          if ($out -notmatch "netflix") { throw "CLI dell'eseguibile senza output: $out" }
+          & $exe add netflix | Out-Host
+          $lnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Stream Launcher\*.lnk"
+          if ($lnk.Count -ne 2) { throw "collegamenti attesi 2, trovati $($lnk.Count)" }
+          $target = (New-Object -ComObject WScript.Shell).CreateShortcut(($lnk | Where-Object Name -eq "Netflix.lnk").FullName)
+          if ($target.TargetPath -notlike "*StreamLauncher.exe" -or $target.Arguments -ne "run netflix") { throw "collegamento errato: $($target.TargetPath) $($target.Arguments)" }
+          # GUI + tray: deve restare in esecuzione (niente crash per plugin Qt mancanti)
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $p = Start-Process $exe -ArgumentList "settings" -PassThru
+          Start-Sleep 8
+          if ($p.HasExited) { Get-Content "$env:LOCALAPPDATA\stream-launcher\launch.log" -ErrorAction SilentlyContinue; throw "la GUI si è chiusa (codice $($p.ExitCode))" }
+          # seconda istanza: inoltra alla prima ed esce subito
+          $q = Start-Process $exe -ArgumentList "settings netflix" -PassThru -Wait
+          if ($q.ExitCode -ne 0) { throw "inoltro alla prima istanza fallito" }
+          Stop-Process $p.Id
+          Write-Output "Eseguibile OK"
+
+      - name: Installer (Inno Setup)
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          choco install innosetup -y --no-progress | Out-Null
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "0.0.0-dev" }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /Qp "/DAppVersion=$version" windows\stream-launcher.iss
+          Get-ChildItem dist\*.exe
+
+      - name: Test dell'installer (silenzioso)
+        run: |
+          $setup = (Get-ChildItem dist\StreamLauncher-Setup-*.exe).FullName
+          Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          $app = "$env:LOCALAPPDATA\Programs\Stream Launcher\StreamLauncher.exe"
+          if (-not (Test-Path $app)) { throw "app non installata" }
+          if (-not (Test-Path "$env:LOCALAPPDATA\stream-launcher\firefox\firefox.exe")) { throw "runtime non scaricato dall'installer" }
+          $n = (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Stream Launcher\*.lnk").Count
+          if ($n -lt 10) { throw "voci del menu Start: $n" }
+          Write-Output "Installer OK: $n voci nel menu Start"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StreamLauncher-Windows
+          path: dist/StreamLauncher-Setup-*.exe
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/StreamLauncher-Setup-*.exe

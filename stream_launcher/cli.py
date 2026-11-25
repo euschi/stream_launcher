@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import sys
 
 from . import core
@@ -29,16 +30,20 @@ def cmd_run(args) -> None:
     core.launch(core.load_service(args.id))
 
 
-def cmd_settings(args) -> None:
-    from . import gui  # GTK si carica solo quando serve
+def _gui(mode: str, service_id: str | None = None) -> None:
+    try:
+        from . import app  # Qt si carica solo quando serve
+    except ImportError as e:
+        raise LauncherError(f"Serve PySide6 per finestra e tray (Arch: sudo pacman -S pyside6): {e}") from e
+    sys.exit(app.main(mode, service_id))
 
-    sys.exit(gui.main(args.id))
+
+def cmd_settings(args) -> None:
+    _gui("settings", args.id)
 
 
 def cmd_tray(_args) -> None:
-    from . import tray  # GTK3 + AppIndicator, processo separato dalla GUI GTK4
-
-    sys.exit(tray.main())
+    _gui("tray")
 
 
 def cmd_add(args) -> None:
@@ -269,8 +274,26 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _windows_console() -> None:
+    """L'eseguibile Windows non ha console: si aggancia a quella di chi lo lancia
+    (prompt, PowerShell), altrimenti scrive nel log."""
+    if sys.platform != "win32" or sys.stdout is not None:
+        return
+    import ctypes
+
+    if ctypes.windll.kernel32.AttachConsole(-1):
+        sys.stdout = sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+        sys.stdin = open("CONIN$", encoding="utf-8", errors="replace")
+    else:
+        core.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        sys.stdout = sys.stderr = open(core.LOG_FILE, "a", encoding="utf-8", errors="replace")
+        sys.stdin = open(os.devnull, encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    _windows_console()
+    argv = sys.argv[1:] if argv is None else argv
+    args = build_parser().parse_args(argv or ["settings"])  # senza comando: finestra impostazioni
     try:
         args.func(args)
     except LauncherError as e:

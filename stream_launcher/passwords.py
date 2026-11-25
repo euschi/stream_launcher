@@ -2,17 +2,21 @@
 
 Chrome su Linux cifra le password con AES-128-CBC; la chiave deriva (PBKDF2) dalla
 password "Chrome Safe Storage" custodita nel portachiavi GNOME (libsecret).
+Su Windows (Chrome, Edge, Brave) la chiave AES-256-GCM sta in "Local State",
+protetta con DPAPI dell'utente.
 A ogni avvio di un servizio si leggono SOLO i login dei suoi domini, si decifrano
 e si consegnano a Firefox in un file temporaneo nel profilo (permessi 600): lo
 script di autoconfig del runtime li importa all'avvio e cancella subito il file.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
 import sqlite3
 import subprocess
+import sys
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +30,14 @@ BROWSERS = {
     "chromium": ("~/.config/chromium", "chromium", "Chromium"),
     "brave-browser": ("~/.config/BraveSoftware/Brave-Browser", "brave", "Brave"),
 }
+# Windows: nome -> (cartella dati sotto %LOCALAPPDATA%, nome leggibile)
+WIN_BROWSERS = {
+    "google-chrome": ("Google/Chrome/User Data", "Google Chrome"),
+    "chromium": ("Chromium/User Data", "Chromium"),
+    "brave-browser": ("BraveSoftware/Brave-Browser/User Data", "Brave"),
+    "microsoft-edge": ("Microsoft/Edge/User Data", "Microsoft Edge"),
+}
+WIN_PROGIDS = {"ChromeHTML": "google-chrome", "ChromiumHTM": "chromium", "BraveHTML": "brave-browser", "MSEdgeHTM": "microsoft-edge"}
 LOGIN_DBS = ("Login Data For Account", "Login Data")  # account Google prima, poi locale
 
 
@@ -41,10 +53,32 @@ class Source:
     keyring_app: str
 
 
+def _windows_default() -> str:
+    import winreg
+
+    base = r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https"
+    for sub_key in ("UserChoiceLatest\\ProgId", "UserChoiceLatest", "UserChoice"):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, f"{base}\\{sub_key}") as k:
+                progid = winreg.QueryValueEx(k, "ProgId")[0]
+        except OSError:
+            continue
+        return WIN_PROGIDS.get(progid.split(".")[0], "")
+    return ""
+
+
 def default_browser() -> Source | None:
     """Browser da cui leggere le password: quello predefinito, o quello forzato
-    con STREAM_LAUNCHER_PASSWORD_BROWSER (es. google-chrome, chromium, brave-browser)."""
+    con STREAM_LAUNCHER_PASSWORD_BROWSER (es. google-chrome, chromium, brave-browser,
+    microsoft-edge)."""
     desktop_id = os.environ.get("STREAM_LAUNCHER_PASSWORD_BROWSER", "").strip()
+    if sys.platform == "win32":
+        name = desktop_id or _windows_default()
+        if name not in WIN_BROWSERS:
+            return None
+        rel, label = WIN_BROWSERS[name]
+        user_data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / rel
+        return Source(name, label, user_data / "Default", "")
     if not desktop_id:
         try:
             desktop_id = subprocess.run(
@@ -177,6 +211,7 @@ class ChromeDecryptor:
         self.key10 = _derive(b"peanuts")  # schema "v10": chiave fissa, senza portachiavi
         secret = _keyring_secret(source.keyring_app)
         self.key11 = _derive(secret) if secret else None
+        self.problem = "" if self.key11 else f"chiave di {source.name} non trovata nel portachiavi"
 
     def decrypt(self, blob: bytes) -> str:
         prefix, data = blob[:3], blob[3:]
@@ -189,6 +224,50 @@ class ChromeDecryptor:
         else:
             raise PasswordError("schema di cifratura non supportato")
         return aes128_cbc_decrypt(key, self.IV, data).decode("utf-8")
+
+
+def _dpapi_unprotect(data: bytes) -> bytes:
+    import ctypes
+    from ctypes import wintypes
+
+    class Blob(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    buf = ctypes.create_string_buffer(data, len(data))
+    inp, out = Blob(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), Blob()
+    if not ctypes.windll.crypt32.CryptUnprotectData(ctypes.byref(inp), None, None, None, None, 0, ctypes.byref(out)):
+        raise PasswordError("DPAPI: decifratura non riuscita")
+    try:
+        return ctypes.string_at(out.pbData, out.cbData)
+    finally:
+        ctypes.windll.kernel32.LocalFree(out.pbData)
+
+
+class WindowsDecryptor:
+    def __init__(self, source: Source):
+        self.key, self.problem = None, ""
+        try:
+            state = json.loads((source.profile_dir.parent / "Local State").read_text(encoding="utf-8"))
+            enc = base64.b64decode(state["os_crypt"]["encrypted_key"])
+            if enc[:5] != b"DPAPI":
+                raise ValueError("formato della chiave sconosciuto")
+            self.key = _dpapi_unprotect(enc[5:])
+        except (OSError, KeyError, ValueError, PasswordError) as e:
+            self.problem = f"chiave di {source.name} non leggibile ({e})"
+
+    def decrypt(self, blob: bytes) -> str:
+        prefix = blob[:3]
+        if prefix == b"v20":
+            raise PasswordError("cifratura legata all'app (v20) non supportata")
+        if prefix not in (b"v10", b"v11"):
+            return _dpapi_unprotect(blob).decode("utf-8")  # vecchi Chrome: DPAPI diretto
+        from cryptography.exceptions import InvalidTag
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        try:
+            return AESGCM(self.key).decrypt(blob[3:15], blob[15:], None).decode("utf-8")
+        except InvalidTag as e:
+            raise PasswordError("chiave errata o dato corrotto") from e
 
 
 def _origin(url: str) -> str:
@@ -207,9 +286,9 @@ def read_logins(source: Source, domains: list[str]) -> list[dict]:
     """Login del browser per i domini indicati, già decifrati e deduplicati."""
     if not domains:
         return []
-    decryptor = ChromeDecryptor(source)
-    if not decryptor.key11:
-        raise PasswordError(f"chiave di {source.name} non trovata nel portachiavi")
+    decryptor = WindowsDecryptor(source) if sys.platform == "win32" else ChromeDecryptor(source)
+    if decryptor.problem:
+        raise PasswordError(decryptor.problem)
     found: dict[tuple[str, str], dict] = {}
     for db_name in LOGIN_DBS:
         path = source.profile_dir / db_name
