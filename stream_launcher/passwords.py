@@ -295,7 +295,7 @@ def _origin(url: str) -> str:
     return f"{u.scheme}://{u.hostname}{port}"
 
 
-def _matches(host: str, domains: list[str]) -> bool:
+def matches_domain(host: str, domains: list[str]) -> bool:
     return any(host == d or host.endswith("." + d) for d in domains)
 
 
@@ -326,7 +326,7 @@ def read_logins(source: Source, domains: list[str]) -> list[dict]:
                 continue
             origin = _origin(origin_url) or _origin(realm)
             host = urllib.parse.urlsplit(origin).hostname or ""
-            if not origin or not _matches(host, domains) or (origin, user) in found:
+            if not origin or not matches_domain(host, domains) or (origin, user) in found:
                 continue  # a parità di sito e utente vince l'archivio dell'account Google
             try:
                 password = decryptor.decrypt(blob)
@@ -489,4 +489,4 @@ def delete_logins(store: dict, keys: list[list[str]]) -> dict:
 def logins_for(domains: list[str], store: dict | None = None) -> list[dict]:
     store = load_store() if store is None else store
     return [lg for lg in store.get("logins", [])
-            if _matches(urllib.parse.urlsplit(lg["origin"]).hostname or "", domains)]
+            if matches_domain(urllib.parse.urlsplit(lg["origin"]).hostname or "", domains)]

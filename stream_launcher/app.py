@@ -647,7 +647,7 @@ class SettingsPage(QScrollArea):
         self.store: dict = {}
         self.status = _note("")
         self.logins = QListWidget(objectName="addons")
-        self.logins.setMinimumHeight(260)
+        self.logins.setMinimumHeight(420)
         self.logins.setSelectionMode(QListWidget.NoSelection)
         v.addWidget(self.status)
         v.addWidget(self.logins)
@@ -762,26 +762,49 @@ class SettingsPage(QScrollArea):
             self.status.setText(f"{len(logins)} login, ultimo import da {store['browser']} il {when}.")
         else:
             self.status.setText(f"{len(logins)} login inseriti a mano.")
-        # Nell'elenco solo siti e utenti: la password si vede solo aprendo la voce.
-        for lg in sorted(logins, key=lambda x: (x["origin"], x["username"])):
+        # Raggruppati per servizio; nell'elenco solo siti e utenti, la password si vede aprendo la voce.
+        for name, group in core.login_groups(logins):
             item = QListWidgetItem()
             self.logins.addItem(item)
-            row = QWidget()
-            h = QHBoxLayout(row)
-            h.setContentsMargins(8, 4, 4, 4)
-            box = QCheckBox()
-            box.toggled.connect(self._count_selected)
-            self.checks.append((box, [lg["origin"], lg["username"]]))
-            h.addWidget(box)
+            header = QWidget()
+            h = QHBoxLayout(header)
+            h.setContentsMargins(8, 10, 4, 2)
+            group_box = QCheckBox()
+            group_box.setToolTip("Seleziona tutti i login del gruppo")
+            hosts = sorted({_host(lg["origin"]) for lg in group})
             text = QVBoxLayout()
             text.setSpacing(0)
-            text.addWidget(_label(lg["username"], "name"))
-            text.addWidget(_label(_host(lg["origin"]) + ("  ·  modificato a mano" if lg.get("manual") else ""), "muted"))
+            text.addWidget(_label(name, "section"))
+            text.addWidget(_label(f"{len(group)} login · {', '.join(hosts)}", "muted"))
+            h.addWidget(group_box)
             h.addLayout(text, 1)
-            h.addWidget(_button("Modifica", lambda x=lg: self._edit(x)))
-            item.setSizeHint(row.sizeHint())
-            self.logins.setItemWidget(item, row)
+            item.setSizeHint(header.sizeHint())
+            self.logins.setItemWidget(item, header)
+            members = []
+            for lg in sorted(group, key=lambda x: (x["origin"], x["username"])):
+                members.append(self._login_row(lg))
+            group_box.toggled.connect(lambda on, boxes=members: [b.setChecked(on) for b in boxes])
         self._count_selected()
+
+    def _login_row(self, lg: dict) -> QCheckBox:
+        item = QListWidgetItem()
+        self.logins.addItem(item)
+        row = QWidget()
+        h = QHBoxLayout(row)
+        h.setContentsMargins(30, 2, 4, 2)
+        box = QCheckBox()
+        box.toggled.connect(self._count_selected)
+        self.checks.append((box, [lg["origin"], lg["username"]]))
+        h.addWidget(box)
+        text = QVBoxLayout()
+        text.setSpacing(0)
+        text.addWidget(_label(lg["username"], "name"))
+        text.addWidget(_label(_host(lg["origin"]) + ("  ·  modificato a mano" if lg.get("manual") else ""), "muted"))
+        h.addLayout(text, 1)
+        h.addWidget(_button("Modifica", lambda x=lg: self._edit(x)))
+        item.setSizeHint(row.sizeHint())
+        self.logins.setItemWidget(item, row)
+        return box
 
     def _selected(self) -> list[list[str]]:
         return [key for box, key in self.checks if box.isChecked()]
