@@ -943,9 +943,29 @@ def _desktop_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("\n", " ")
 
 
+def install_theme_icon() -> str:
+    """Icona dell'app nel tema hicolor, richiamata per nome.
+
+    Con un percorso fisso GNOME tiene in cache l'immagine vecchia anche dopo un
+    aggiornamento; un'icona del tema invece viene ricaricata quando cambia.
+    """
+    target = XDG_DATA / "icons/hicolor/scalable/apps" / f"{APP}.svg"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    data = (ASSETS_DIR / "icon.svg").read_bytes()
+    if not target.is_file() or target.read_bytes() != data:
+        target.write_bytes(data)
+        theme = XDG_DATA / "icons/hicolor"
+        theme.touch()  # segnala il cambio a chi sorveglia il tema
+        try:
+            subprocess.run(["gtk-update-icon-cache", "-qtf", str(theme)], capture_output=True, check=False)
+        except FileNotFoundError:
+            pass
+    return APP
+
+
 def write_desktop_entry(svc: Service) -> None:
     APPS_DIR.mkdir(parents=True, exist_ok=True)
-    icon = svc.icon_path if svc.icon_path.is_file() else ASSETS_DIR / "icon.svg"
+    icon = svc.icon_path if svc.icon_path.is_file() else install_theme_icon()
     cli = CLI_PATH
     svc.desktop_path.write_text(
         "[Desktop Entry]\n"
@@ -974,7 +994,7 @@ def write_settings_entry() -> None:
         "Name=Stream Launcher\n"
         "Comment=Gestisci i servizi di streaming: proxy, addon, duplicati\n"
         f"Exec={CLI_PATH} settings\n"
-        f"Icon={ASSETS_DIR / 'icon.svg'}\n"
+        f"Icon={install_theme_icon()}\n"
         "Terminal=false\n"
         "Categories=AudioVideo;Video;Settings;\n"
         f"StartupWMClass={APP}\n",
