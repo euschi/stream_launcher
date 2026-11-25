@@ -185,6 +185,7 @@ def cmd_init(args) -> None:
     elif core.runtime_installed():
         core.install_policies()
     core.sync_desktop_entries()
+    core.set_autostart(core.get_pref("autostart", "on") == "on")  # rispetta la scelta fatta nelle impostazioni
 
 
 def build_parser() -> argparse.ArgumentParser:

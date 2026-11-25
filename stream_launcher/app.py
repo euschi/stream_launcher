@@ -55,75 +55,83 @@ UA_CHOICES = [
     ("windows", "Firefox su Windows"),
     ("custom", "Personalizzato"),
 ]
-# Tema scuro coerente con l'icona: fondo viola-nero, accento arancio -> magenta.
-BG, SURFACE, SURFACE_HI, BORDER = "#141219", "#1e1b25", "#27232f", "#322d3c"
-TEXT, MUTED, ACCENT, DANGER = "#efeaf5", "#9d95ab", "#ec4899", "#f87171"
+# Temi coerenti con l'icona: accento arancio -> magenta su fondo viola-nero (scuro) o lilla chiaro.
 ASSETS = core.ASSETS_DIR.as_posix()
-GRADIENT = "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ff9f1c, stop:1 #ec4899)"
-STYLE = f"""
-QWidget {{ color: {TEXT}; font-size: 13px; }}
-QMainWindow, QScrollArea, QScrollArea > QWidget > QWidget, QDialog {{ background: {BG}; }}
+THEMES = core.THEMES
+THEME_CHOICES = [("auto", "Automatico (come il sistema)"), ("dark", "Scuro"), ("light", "Chiaro")]
+
+
+def _style(c: dict) -> str:
+    return f"""
+QWidget {{ color: {c['text']}; font-size: 13px; }}
+QMainWindow, QScrollArea, QScrollArea > QWidget > QWidget, QDialog {{ background: {c['bg']}; }}
 QLabel[role="title"] {{ font-size: 20px; font-weight: 700; }}
 QLabel[role="name"] {{ font-size: 15px; font-weight: 600; }}
 QLabel[role="section"] {{ font-size: 16px; font-weight: 700; }}
-QFrame#catalog {{ background: transparent; border: 1px dashed {BORDER}; border-radius: 14px; }}
-QFrame#catalog:hover {{ background: {SURFACE}; }}
-QLabel[role="muted"] {{ color: {MUTED}; }}
-QFrame#row {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 14px; }}
-QFrame#row:hover {{ background: {SURFACE_HI}; border-color: #4a4257; }}
+QFrame#catalog {{ background: transparent; border: 1px dashed {c['border']}; border-radius: 14px; }}
+QFrame#catalog:hover {{ background: {c['surface']}; }}
+QLabel[role="muted"] {{ color: {c['muted']}; }}
+QFrame#row {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 14px; }}
+QFrame#row:hover {{ background: {c['surface_hi']}; border-color: {c['hover_border']}; }}
 QListWidget {{ background: transparent; border: none; outline: none; }}
 QListWidget::item, QListWidget::item:selected, QListWidget::item:hover {{ background: transparent; border: none; }}
-QListWidget#addons {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 10px; padding: 4px; }}
+QListWidget#addons {{ background: {c['bg']}; border: 1px solid {c['border']}; border-radius: 10px; padding: 4px; }}
 QListWidget#addons::item {{ padding: 4px 6px; border-radius: 6px; }}
-QListWidget#addons::item:selected {{ background: {SURFACE_HI}; }}
-QGroupBox {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 14px;
+QListWidget#addons::item:selected {{ background: {c['surface_hi']}; }}
+QGroupBox {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 14px;
             margin-top: 30px; padding: 16px 14px 12px; font-size: 14px; font-weight: 600; }}
-QGroupBox::title {{ subcontrol-origin: margin; left: 6px; top: 6px; color: {TEXT}; }}
-QLineEdit, QComboBox {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 8px;
-            padding: 7px 9px; font-weight: 400; selection-background-color: {ACCENT}; }}
-QLineEdit:focus, QComboBox:focus {{ border-color: {ACCENT}; }}
-QLineEdit:disabled, QComboBox:disabled {{ color: #5d5669; border-color: #26222e; }}
+QGroupBox::title {{ subcontrol-origin: margin; left: 6px; top: 6px; color: {c['text']}; }}
+QLineEdit, QComboBox {{ background: {c['bg']}; border: 1px solid {c['border']}; border-radius: 8px;
+            padding: 7px 9px; font-weight: 400; selection-background-color: {c['accent']}; }}
+QLineEdit:focus, QComboBox:focus {{ border-color: {c['accent']}; }}
+QLineEdit:disabled, QComboBox:disabled {{ color: {c['disabled']}; border-color: {c['disabled_border']}; }}
 QComboBox::drop-down {{ border: none; width: 28px; }}
 QComboBox::down-arrow {{ image: url("{ASSETS}/chevron.svg"); width: 12px; height: 12px; }}
-QCheckBox::indicator {{ width: 18px; height: 18px; border: 1px solid #4a4257; border-radius: 5px; background: {BG}; }}
-QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; image: url("{ASSETS}/check.svg"); }}
-QCheckBox::indicator:disabled {{ border-color: #2b2733; }}
-QComboBox QAbstractItemView {{ background: {SURFACE}; border: 1px solid {BORDER}; selection-background-color: {SURFACE_HI}; }}
+QCheckBox::indicator {{ width: 18px; height: 18px; border: 1px solid {c['hover_border']}; border-radius: 5px; background: {c['bg']}; }}
+QCheckBox::indicator:checked {{ background: {c['accent']}; border-color: {c['accent']}; image: url("{ASSETS}/check.svg"); }}
+QCheckBox::indicator:disabled {{ border-color: {c['disabled_border']}; }}
+QComboBox QAbstractItemView {{ background: {c['surface']}; border: 1px solid {c['border']}; selection-background-color: {c['surface_hi']}; }}
 QCheckBox {{ font-weight: 400; spacing: 8px; }}
-QPushButton, QToolButton {{ background: {SURFACE_HI}; border: 1px solid {BORDER}; border-radius: 9px;
+QPushButton, QToolButton {{ background: {c['surface_hi']}; border: 1px solid {c['border']}; border-radius: 9px;
             padding: 7px 14px; font-weight: 600; }}
-QPushButton:hover, QToolButton:hover {{ background: #312c3b; border-color: #4a4257; }}
-QPushButton:disabled {{ color: #5d5669; background: {SURFACE}; }}
-QPushButton[kind="accent"], QToolButton[kind="accent"] {{ background: {GRADIENT}; border: none; color: white; }}
+QPushButton:hover, QToolButton:hover {{ background: {c['hover']}; border-color: {c['hover_border']}; }}
+QPushButton:disabled {{ color: {c['disabled']}; background: {c['surface']}; }}
+QPushButton[kind="accent"], QToolButton[kind="accent"] {{ background: {c['gradient']}; border: none; color: white; }}
 QPushButton[kind="accent"]:hover, QToolButton[kind="accent"]:hover {{
             background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ffb347, stop:1 #f472b6); }}
 QToolButton::menu-indicator {{ image: none; }}
-QPushButton[kind="ghost"] {{ background: transparent; border: none; color: {MUTED}; }}
-QPushButton[kind="ghost"]:hover {{ color: {TEXT}; background: {SURFACE_HI}; }}
-QPushButton[kind="danger"] {{ background: transparent; border: 1px solid #5b2a33; color: {DANGER}; }}
-QPushButton[kind="danger"]:hover {{ background: #3a1d24; }}
-QMenu {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 10px; padding: 6px; }}
+QPushButton[kind="ghost"] {{ background: transparent; border: none; color: {c['muted']}; }}
+QPushButton[kind="ghost"]:hover {{ color: {c['text']}; background: {c['surface_hi']}; }}
+QPushButton[kind="danger"] {{ background: transparent; border: 1px solid {c['danger_border']}; color: {c['danger']}; }}
+QPushButton[kind="danger"]:hover {{ background: {c['danger_hover']}; }}
+QMenu {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 10px; padding: 6px; }}
 QMenu::item {{ padding: 7px 18px; border-radius: 6px; }}
-QMenu::item:selected {{ background: {SURFACE_HI}; }}
-QStatusBar {{ background: {BG}; color: {MUTED}; }}
+QMenu::item:selected {{ background: {c['surface_hi']}; }}
+QStatusBar {{ background: {c['bg']}; color: {c['muted']}; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
-QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 4px; min-height: 30px; }}
+QScrollBar::handle:vertical {{ background: {c['border']}; border-radius: 4px; min-height: 30px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 """
 
 
 def _apply_theme(app: QApplication) -> None:
+    """Applica il tema scelto nelle impostazioni; «auto» segue il sistema."""
+    choice = core.get_pref("theme", "auto")
+    if choice not in THEMES:
+        choice = "dark" if app.styleHints().colorScheme() != Qt.ColorScheme.Light else "light"
+    c = THEMES[choice]
     app.setStyle("Fusion")  # identico su Linux e Windows, e rispetta la palette
     pal = QPalette()
-    for role, color in (
-        (QPalette.Window, BG), (QPalette.Base, BG), (QPalette.AlternateBase, SURFACE),
-        (QPalette.Button, SURFACE_HI), (QPalette.WindowText, TEXT), (QPalette.Text, TEXT),
-        (QPalette.ButtonText, TEXT), (QPalette.ToolTipBase, SURFACE), (QPalette.ToolTipText, TEXT),
-        (QPalette.Highlight, ACCENT), (QPalette.HighlightedText, "#ffffff"), (QPalette.PlaceholderText, "#6f6880"),
+    for role, key in (
+        (QPalette.Window, "bg"), (QPalette.Base, "bg"), (QPalette.AlternateBase, "surface"),
+        (QPalette.Button, "surface_hi"), (QPalette.WindowText, "text"), (QPalette.Text, "text"),
+        (QPalette.ButtonText, "text"), (QPalette.ToolTipBase, "surface"), (QPalette.ToolTipText, "text"),
+        (QPalette.Highlight, "accent"), (QPalette.PlaceholderText, "placeholder"),
     ):
-        pal.setColor(role, QColor(color))
+        pal.setColor(role, QColor(c[key]))
+    pal.setColor(QPalette.HighlightedText, QColor("#ffffff"))
     app.setPalette(pal)
-    app.setStyleSheet(STYLE)
+    app.setStyleSheet(_style(c))
 
 
 ADDON_HINT = (
@@ -241,7 +249,7 @@ class ServiceList(QWidget):
         layout.setContentsMargins(22, 20, 22, 8)
         layout.setSpacing(16)
         header, actions = _header("Stream Launcher", "Ogni servizio ha profilo, login, proxy e addon separati", app_icon())
-        actions.addWidget(_button("🔑  Password", win.open_passwords))
+        actions.addWidget(_button("⚙  Impostazioni", win.open_settings))
         layout.addLayout(header)
 
         self.list = QListWidget()
@@ -585,8 +593,12 @@ class Editor(QScrollArea):
 # --------------------------------------------------------------------------- password
 
 
-class PasswordsPage(QScrollArea):
-    """Import globale: un browser, solo i login dei servizi, in un archivio protetto."""
+class SettingsPage(QScrollArea):
+    """Impostazioni del launcher: aspetto, comportamento, motore Firefox e password.
+
+    Le password si importano a livello globale: un browser, solo i login dei servizi,
+    in un archivio protetto.
+    """
 
     def __init__(self, win: "Window"):
         from .passwords import default_browser, installed_browsers
@@ -600,10 +612,12 @@ class PasswordsPage(QScrollArea):
         layout.setContentsMargins(22, 14, 22, 18)
         layout.setSpacing(10)
         layout.addWidget(_button("←  Tutti i servizi", win.show_list, "ghost"), 0, Qt.AlignLeft)
-        header, _ = _header("Password", "Login dei servizi importati da un browser", app_icon())
+        header, _ = _header("Impostazioni", "Aspetto, comportamento, motore Firefox e password", app_icon())
         layout.addLayout(header)
+        for group in (self._look_group(), self._behaviour_group(), self._runtime_group()):
+            layout.addWidget(group)
 
-        g = QGroupBox("Importa")
+        g = QGroupBox("Password")
         v = QVBoxLayout(g)
         v.addWidget(_note(
             "Dal browser scelto vengono letti SOLO i login dei siti dei servizi (quelli installati e "
@@ -628,7 +642,7 @@ class PasswordsPage(QScrollArea):
         v.addLayout(row)
         layout.addWidget(g)
 
-        g = QGroupBox("Nell'archivio")
+        g = QGroupBox("Archivio password")
         v = QVBoxLayout(g)
         self.store: dict = {}
         self.status = _note("")
@@ -646,6 +660,83 @@ class PasswordsPage(QScrollArea):
         layout.addStretch(1)
         self.setWidget(body)
         self._load()
+
+    # ------------------------------------------------------------------ aspetto e comportamento
+
+    @staticmethod
+    def _pref_combo(key: str, choices: list[tuple[str, str]], default: str, then=None) -> QComboBox:
+        box = _combo(choices, core.get_pref(key, default))
+
+        def changed():
+            core.set_pref(key, box.currentData())
+            if then:
+                then()
+
+        box.currentIndexChanged.connect(changed)
+        return box
+
+    def _look_group(self) -> QGroupBox:
+        g = QGroupBox("Aspetto")
+        form = QFormLayout(g)
+        form.addRow("Tema", self._pref_combo("theme", THEME_CHOICES, "auto", lambda: _apply_theme(QApplication.instance())))
+        return g
+
+    def _behaviour_group(self) -> QGroupBox:
+        g = QGroupBox("Comportamento")
+        form = QFormLayout(g)
+        autostart = QCheckBox("Avvia con il sistema (icona nella tray all'accesso)")
+        autostart.setChecked(core.autostart_path().exists())
+        autostart.toggled.connect(lambda on: run_async(lambda: core.set_autostart(on), lambda _: None, self.win.toast))
+        form.addRow(autostart)
+        form.addRow("Chiudendo la finestra", self._pref_combo(
+            "close_action", [("tray", "Resta nella tray"), ("quit", "Esci da Stream Launcher")], "tray"))
+        form.addRow("Avviando un servizio", self._pref_combo(
+            "after_launch", [("stay", "Lascia aperta questa finestra"), ("close", "Chiudi questa finestra")], "stay"))
+        return g
+
+    def _runtime_group(self) -> QGroupBox:
+        g = QGroupBox("Motore Firefox")
+        form = QFormLayout(g)
+        self.runtime_info = _note("")
+        self.channel = _combo([("esr", "ESR (consigliato)"), ("release", "Release (più recente)")], core.runtime_channel())
+        self.runtime_btn = _button("Scarica / aggiorna", self._update_runtime)
+        bottom = QHBoxLayout()
+        bottom.addWidget(_note(f"Profili e motore in {core.STORAGE_DIR}"), 1)
+        bottom.addWidget(self.runtime_btn, 0, Qt.AlignBottom)
+        form.addRow(self.runtime_info)
+        form.addRow("Canale", self.channel)
+        form.addRow(_note("ESR serve per gli addon Chrome e per i proxy con credenziali."))
+        form.addRow(bottom)
+        self._runtime_text()
+        return g
+
+    def _runtime_text(self) -> None:
+        version = core.runtime_version()
+        self.runtime_info.setText(f"Installato: Firefox {version} ({core.runtime_channel()})" if version
+                                  else "Non ancora scaricato: arriva con il primo servizio installato.")
+
+    def _update_runtime(self) -> None:
+        running = [svc.name for svc in core.list_services() if core.profile_running(svc.profile_dir)]
+        if running:
+            self.win.toast(f"Chiudi prima: {', '.join(running)}")
+            return
+        channel = self.channel.currentData()
+        self.runtime_btn.setEnabled(False)
+        self.runtime_info.setText("Scarico Firefox…")
+
+        def done(_):
+            self.runtime_btn.setEnabled(True)
+            self._runtime_text()
+            self.win.toast("Motore Firefox aggiornato")
+
+        def failed(err):
+            self.runtime_btn.setEnabled(True)
+            self._runtime_text()
+            self.win.toast(f"Aggiornamento non riuscito: {err}")
+
+        run_async(lambda: core.install_runtime(channel), done, failed)
+
+    # ------------------------------------------------------------------ password
 
     def _show(self, store: dict) -> None:
         self.store = store
@@ -778,6 +869,11 @@ class Window(QMainWindow):
     def toast(self, message: str) -> None:
         self.statusBar().showMessage(message, 6000)
 
+    def closeEvent(self, event) -> None:
+        super().closeEvent(event)
+        if core.get_pref("close_action", "tray") == "quit":
+            QApplication.instance().quit()
+
     def show_list(self) -> None:
         self.list_page.refresh()
         self.stack.setCurrentWidget(self.list_page)
@@ -799,9 +895,9 @@ class Window(QMainWindow):
         self.stack.addWidget(self.editor)
         self.stack.setCurrentWidget(self.editor)
 
-    def open_passwords(self) -> None:
+    def open_settings(self) -> None:
         self.show_list()
-        self.editor = PasswordsPage(self)
+        self.editor = SettingsPage(self)
         self.stack.addWidget(self.editor)
         self.stack.setCurrentWidget(self.editor)
 
@@ -809,6 +905,8 @@ class Window(QMainWindow):
         if core.runtime_installed():
             core.launch_detached(service_id)
             self.toast("Avvio in corso…")
+            if core.get_pref("after_launch", "stay") == "close":
+                self.close()
             return
         self.toast("Scarico il motore Firefox, poi avvio…")
         run_async(core.ensure_runtime, lambda _: self.launch(service_id), self.toast)
@@ -861,7 +959,7 @@ class Controller(QObject):
             label = svc.name if not svc.proxy.enabled else f"{svc.name}  ·  proxy"
             self.menu.addAction(service_icon(svc), label.replace("&", "&&"), lambda sid=svc.id: self.launch(sid))
         self.menu.addSeparator()
-        self.menu.addAction("Impostazioni…", self.show_settings)
+        self.menu.addAction("Apri Stream Launcher…", self.show_settings)
         self.menu.addAction("Esci", self.app.quit)
 
     def _activated(self, reason) -> None:
@@ -920,6 +1018,7 @@ def main(mode: str = "settings", service_id: str | None = None) -> int:
     app.setDesktopFileName(core.APP)  # Wayland: abbina le finestre a stream-launcher.desktop
     app.setWindowIcon(app_icon())
     _apply_theme(app)
+    app.styleHints().colorSchemeChanged.connect(lambda _s: core.get_pref("theme", "auto") == "auto" and _apply_theme(app))
     app.setQuitOnLastWindowClosed(False)  # chiusa la finestra si resta nella tray
 
     message = f"{mode} {service_id or ''}".strip()
