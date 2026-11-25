@@ -715,6 +715,14 @@ def prepare_profile(svc: Service, log=print) -> None:
     chrome = ASSETS_DIR / "chrome"
     css = "\n".join(f.read_text(encoding="utf-8") for f in (chrome / "userChrome.css", chrome / "theme.css"))
     (profile / "chrome" / "userChrome.css").write_text(css + "\n" + theme_vars, encoding="utf-8")
+    if IS_WIN:
+        # Icona delle finestre nella barra delle applicazioni (la assegna l'autoconfig).
+        target = profile / "stream-launcher-icon.ico"
+        ico = _png_to_ico(svc) if svc.icon_path.is_file() else ""
+        if ico:
+            shutil.copyfile(ico, target)
+        else:
+            target.unlink(missing_ok=True)
     sync_addons(svc, log)
     sync_passwords(svc, log)
 
