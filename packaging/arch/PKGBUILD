@@ -2,7 +2,7 @@
 #   cd packaging/arch && makepkg -si
 # Si costruisce dal ramo main (produzione) di questo repository.
 pkgname=stream-launcher
-pkgver=1.01.00
+pkgver=1.02.01
 pkgrel=1
 pkgdesc="Servizi di streaming in finestre Firefox separate: profili, proxy, addon e password"
 arch=('any')
@@ -27,6 +27,8 @@ package() {
   install -d "$app"
   cp -r stream_launcher config templates bin "$app/"
   chmod 755 "$app/bin/stream-launcher"
+  local version="${pkgver%.r0.*}"  # sul commit del tag: solo il numero (es. 1.02.01)
+  echo "VERSION = \"$version\"" > "$app/stream_launcher/_version.py"
   python -m compileall -q -d /usr/share/stream-launcher "$app/stream_launcher"
   install -d "$pkgdir/usr/bin"
   ln -s /usr/share/stream-launcher/bin/stream-launcher "$pkgdir/usr/bin/stream-launcher"

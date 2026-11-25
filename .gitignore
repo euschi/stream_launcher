@@ -8,3 +8,4 @@ packaging/arch/src/
 packaging/arch/pkg/
 packaging/arch/stream-launcher/
 packaging/arch/*.pkg.tar.*
+stream_launcher/_version.py
