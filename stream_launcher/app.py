@@ -67,6 +67,9 @@ QWidget {{ color: {c['text']}; font-size: 13px; }}
 QMainWindow, QScrollArea, QScrollArea > QWidget > QWidget, QDialog {{ background: {c['bg']}; }}
 QLabel[role="title"] {{ font-size: 20px; font-weight: 700; }}
 QLabel[role="name"] {{ font-size: 15px; font-weight: 600; }}
+QFrame#accordion {{ background: {c['bg']}; border: 1px solid {c['border']}; border-radius: 12px; }}
+QPushButton[kind="accordion"] {{ background: transparent; border: none; border-radius: 12px; text-align: left; padding: 0; }}
+QPushButton[kind="accordion"]:hover {{ background: {c['surface_hi']}; }}
 QLabel[role="section"] {{ font-size: 16px; font-weight: 700; }}
 QFrame#catalog {{ background: transparent; border: 1px dashed {c['border']}; border-radius: 14px; }}
 QFrame#catalog:hover {{ background: {c['surface']}; }}
@@ -645,26 +648,19 @@ class SettingsPage(QScrollArea):
         g = QGroupBox("Archivio password")
         v = QVBoxLayout(g)
         self.store: dict = {}
+        self.expanded: set[str] = set()  # servizi aperti nell'accordion, tenuti tra un aggiornamento e l'altro
         self.status = _note("")
-        self.logins = QListWidget(objectName="addons")
-        self.logins.setMinimumHeight(420)
-        self.logins.setSelectionMode(QListWidget.NoSelection)
+        sections = QWidget()
+        self.sections = QVBoxLayout(sections)
+        self.sections.setContentsMargins(0, 4, 0, 4)
+        self.sections.setSpacing(8)
         v.addWidget(self.status)
-        v.addWidget(self.logins)
-        bottom = QHBoxLayout()
-        self.select_all = QCheckBox("Seleziona tutto")
-        self.select_all.toggled.connect(lambda on: [box.setChecked(on) for box, _ in self.checks])
-        self.delete_btn = _button("Elimina selezionati", self._delete_selected, "danger")
-        bottom.addWidget(self.select_all)
-        bottom.addStretch(1)
-        bottom.addWidget(self.delete_btn)
-        v.addLayout(bottom)
+        v.addWidget(sections)
         bottom = QHBoxLayout()
         bottom.addWidget(_button("+  Aggiungi a mano", lambda: self._edit(None)))
         bottom.addStretch(1)
         bottom.addWidget(_button("Svuota l'archivio", self._clear, "danger"))
         v.addLayout(bottom)
-        self.checks: list[tuple[QCheckBox, list[str]]] = []
         layout.addWidget(g)
         layout.addStretch(1)
         self.setWidget(body)
@@ -749,11 +745,10 @@ class SettingsPage(QScrollArea):
 
     def _show(self, store: dict) -> None:
         self.store = store
-        self.logins.clear()
-        self.checks = []
-        self.select_all.blockSignals(True)
-        self.select_all.setChecked(False)
-        self.select_all.blockSignals(False)
+        while self.sections.count():
+            old = self.sections.takeAt(0).widget()
+            if old:
+                old.deleteLater()
         logins = store.get("logins", [])
         if not logins:
             self.status.setText("Archivio vuoto: scegli un browser e premi Importa.")
@@ -762,64 +757,85 @@ class SettingsPage(QScrollArea):
             self.status.setText(f"{len(logins)} login, ultimo import da {store['browser']} il {when}.")
         else:
             self.status.setText(f"{len(logins)} login inseriti a mano.")
-        # Raggruppati per servizio; nell'elenco solo siti e utenti, la password si vede aprendo la voce.
         for name, group in core.login_groups(logins):
-            item = QListWidgetItem()
-            self.logins.addItem(item)
-            header = QWidget()
-            h = QHBoxLayout(header)
-            h.setContentsMargins(8, 10, 4, 2)
-            group_box = QCheckBox()
-            group_box.setToolTip("Seleziona tutti i login del gruppo")
-            hosts = sorted({_host(lg["origin"]) for lg in group})
+            self.sections.addWidget(self._accordion(name, group))
+
+    def _accordion(self, name: str, group: list[dict]) -> QFrame:
+        """Un servizio: intestazione che si apre e chiude, dentro i login e i comandi rapidi."""
+        card = QFrame(objectName="accordion")
+        v = QVBoxLayout(card)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        hosts = sorted({_host(lg["origin"]) for lg in group})
+
+        header = QPushButton()
+        header.setProperty("kind", "accordion")
+        header.setCursor(Qt.PointingHandCursor)
+        header.setMinimumHeight(48)
+        h = QHBoxLayout(header)
+        h.setContentsMargins(14, 0, 14, 0)
+        arrow, title = _label("", "name"), _label(name, "name")
+        h.addWidget(arrow)
+        h.addWidget(title, 1)
+        h.addWidget(_label(f"{len(group)} login", "muted"))
+        v.addWidget(header)
+
+        body = QWidget()
+        b = QVBoxLayout(body)
+        b.setContentsMargins(14, 0, 14, 12)
+        b.setSpacing(6)
+        b.addWidget(_note(", ".join(hosts)))
+        boxes: list[tuple[QCheckBox, list[str]]] = []
+        # Solo siti e utenti: la password si vede aprendo la voce con Modifica.
+        for lg in sorted(group, key=lambda x: (x["username"], x["origin"])):
+            row = QHBoxLayout()
+            box = QCheckBox()
+            boxes.append((box, [lg["origin"], lg["username"]]))
             text = QVBoxLayout()
             text.setSpacing(0)
-            text.addWidget(_label(name, "section"))
-            text.addWidget(_label(f"{len(group)} login · {', '.join(hosts)}", "muted"))
-            h.addWidget(group_box)
-            h.addLayout(text, 1)
-            item.setSizeHint(header.sizeHint())
-            self.logins.setItemWidget(item, header)
-            members = []
-            for lg in sorted(group, key=lambda x: (x["origin"], x["username"])):
-                members.append(self._login_row(lg))
-            group_box.toggled.connect(lambda on, boxes=members: [b.setChecked(on) for b in boxes])
-        self._count_selected()
+            text.addWidget(_label(lg["username"], "name"))
+            text.addWidget(_label(_host(lg["origin"]) + ("  ·  modificato a mano" if lg.get("manual") else ""), "muted"))
+            row.addWidget(box)
+            row.addLayout(text, 1)
+            row.addWidget(_button("Modifica", lambda x=lg: self._edit(x)))
+            b.addLayout(row)
 
-    def _login_row(self, lg: dict) -> QCheckBox:
-        item = QListWidgetItem()
-        self.logins.addItem(item)
-        row = QWidget()
-        h = QHBoxLayout(row)
-        h.setContentsMargins(30, 2, 4, 2)
-        box = QCheckBox()
-        box.toggled.connect(self._count_selected)
-        self.checks.append((box, [lg["origin"], lg["username"]]))
-        h.addWidget(box)
-        text = QVBoxLayout()
-        text.setSpacing(0)
-        text.addWidget(_label(lg["username"], "name"))
-        text.addWidget(_label(_host(lg["origin"]) + ("  ·  modificato a mano" if lg.get("manual") else ""), "muted"))
-        h.addLayout(text, 1)
-        h.addWidget(_button("Modifica", lambda x=lg: self._edit(x)))
-        item.setSizeHint(row.sizeHint())
-        self.logins.setItemWidget(item, row)
-        return box
+        quick = QHBoxLayout()
+        quick.setContentsMargins(0, 6, 0, 0)
+        select = QCheckBox("Seleziona tutti")
+        select.toggled.connect(lambda on: [bx.setChecked(on) for bx, _ in boxes])
+        delete = _button("Elimina selezionati", lambda: self._delete([k for bx, k in boxes if bx.isChecked()]), "danger")
 
-    def _selected(self) -> list[list[str]]:
-        return [key for box, key in self.checks if box.isChecked()]
+        def count() -> None:
+            n = sum(bx.isChecked() for bx, _ in boxes)
+            delete.setText(f"Elimina selezionati ({n})" if n else "Elimina selezionati")
+            delete.setEnabled(n > 0)
 
-    def _count_selected(self) -> None:
-        n = len(self._selected())
-        self.delete_btn.setText(f"Elimina selezionati ({n})" if n else "Elimina selezionati")
-        self.delete_btn.setEnabled(n > 0)
+        for bx, _ in boxes:
+            bx.toggled.connect(count)
+        count()
+        quick.addWidget(select)
+        quick.addStretch(1)
+        quick.addWidget(_button("+  Aggiungi login", lambda: self._edit(None, hosts[0])))
+        quick.addWidget(delete)
+        b.addLayout(quick)
+        v.addWidget(body)
 
-    def _edit(self, login: dict | None) -> None:
+        def toggle(open_: bool) -> None:
+            body.setHidden(not open_)
+            arrow.setText("▾" if open_ else "▸")
+            (self.expanded.add if open_ else self.expanded.discard)(name)
+
+        header.clicked.connect(lambda: toggle(body.isHidden()))
+        toggle(name in self.expanded)
+        return card
+
+    def _edit(self, login: dict | None, site_hint: str = "") -> None:
         from .passwords import PasswordError, edit_login
 
-        login = login or {}
+        login = login or {"origin": f"https://{site_hint}" if site_hint else ""}
         dialog = QDialog(self)
-        dialog.setWindowTitle("Modifica login" if login else "Nuovo login")
+        dialog.setWindowTitle("Modifica login" if login.get("username") else "Nuovo login")
         form = QFormLayout(dialog)
         site = QLineEdit(_host(login.get("origin", "")), placeholderText="es. www.netflix.com")
         user = QLineEdit(login.get("username", ""))
@@ -839,7 +855,7 @@ class SettingsPage(QScrollArea):
         dialog.resize(440, dialog.sizeHint().height())
         if dialog.exec() != QDialog.Accepted:
             return
-        old_key = [login["origin"], login["username"]] if login else None
+        old_key = [login["origin"], login["username"]] if login.get("username") else None
         values = (site.text().strip(), user.text().strip(), pw.text())
 
         def work():
@@ -851,10 +867,9 @@ class SettingsPage(QScrollArea):
         run_async(work, lambda store: (self._show(store), self.win.toast("Login salvato")),
                   lambda e: self.win.toast(f"Non salvato: {e}"))
 
-    def _delete_selected(self) -> None:
+    def _delete(self, keys: list[list[str]]) -> None:
         from .passwords import delete_logins
 
-        keys = self._selected()
         names = ", ".join(f"{user} ({_host(origin)})" for origin, user in keys[:5]) + (" …" if len(keys) > 5 else "")
         if QMessageBox.question(self, f"Eliminare {len(keys)} login?",
                                 f"{names}\n\nNon verranno più passati ai servizi e un nuovo import non li riporterà.") \
@@ -1087,4 +1102,7 @@ def main(mode: str = "settings", service_id: str | None = None) -> int:
 
     server.newConnection.connect(on_connection)
     controller.handle(message)
+    if core.entries_outdated():  # programma spostato (es. da install.sh al pacchetto): voci di menu da riscrivere
+        run_async(lambda: (core.sync_desktop_entries(), core.set_autostart(core.get_pref("autostart", "on") == "on")),
+                  lambda _: None, lambda _e: None)
     return app.exec()
