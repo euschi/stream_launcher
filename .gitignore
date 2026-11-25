@@ -4,3 +4,7 @@ build/
 dist/
 windows/icon.ico
 *.spec
+packaging/arch/src/
+packaging/arch/pkg/
+packaging/arch/stream-launcher/
+packaging/arch/*.pkg.tar.*

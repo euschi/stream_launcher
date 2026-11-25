@@ -1,0 +1,23 @@
+post_install() {
+  cat <<MSG
+==> Stream Launcher: apri «Stream Launcher» dal menu applicazioni.
+    Servizi, profili, password e configurazione restano nella home di ogni utente
+    (~/.config/stream-launcher, ~/.local/share/stream-launcher): al primo avvio
+    l'app aggiorna da sola le voci di menu e l'avvio automatico.
+    Se prima lo avevi installato con install.sh, togli la vecchia copia:
+      rm -rf ~/.local/share/stream-launcher/app ~/.local/bin/stream-launcher
+MSG
+}
+
+post_upgrade() {
+  echo "==> Stream Launcher aggiornato: riavvia la tray (Esci dal menu dell'icona e riapri l'app)."
+}
+
+post_remove() {
+  cat <<MSG
+==> Stream Launcher rimosso. Nella home restano dati e voci di menu dei servizi:
+      rm -f ~/.local/share/applications/stream-launcher*.desktop ~/.config/autostart/stream-launcher-tray.desktop
+    e, per cancellare anche profili e configurazione:
+      rm -rf ~/.local/share/stream-launcher ~/.config/stream-launcher
+MSG
+}
