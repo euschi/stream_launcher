@@ -47,7 +47,8 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     fi
   fi
   rm -rf "$DATA_DIR"
-  rm -f "$BIN_LINK" "$AUTOSTART" "$APPS_DIR"/stream-launcher.desktop "$APPS_DIR"/stream-launcher-*.desktop
+  rm -f "$BIN_LINK" "$AUTOSTART" "$APPS_DIR"/stream-launcher.desktop "$APPS_DIR"/stream-launcher-*.desktop \
+        "$DATA_HOME/icons/hicolor/scalable/apps/stream-launcher.svg"
   update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
   echo "Stream Launcher rimosso (configurazione conservata in $CONFIG_HOME/stream-launcher)."
   exit 0
@@ -86,7 +87,7 @@ Type=Application
 Name=Stream Launcher (tray)
 Comment=Icona nella tray con i servizi di streaming
 Exec=$APP_DIR/bin/stream-launcher tray
-Icon=$APP_DIR/config/icon.svg
+Icon=stream-launcher
 Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true

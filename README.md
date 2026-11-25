@@ -27,10 +27,10 @@ Italia e Paramount+ USA (con proxy USA), o due account dello stesso servizio.
 | Gratuiti / TV | RaiPlay, Mediaset Infinity, La7, Pluto TV, YouTube |
 | Noleggio | Chili, Rakuten TV |
 
-Sono tutti creati all'installazione. Gli aggiornamenti aggiungono i servizi nuovi,
-ma non ripristinano quelli che hai eliminato; puoi sempre riaggiungerli dal
-pulsante **+** della finestra impostazioni (o con `stream-launcher add <modello>`,
-elenco con `stream-launcher templates`).
+Sono un **catalogo**: l'installazione non crea nessun servizio. Nella finestra,
+in cima ci sono «I tuoi servizi» e sotto il catalogo con **Installa**; il primo
+servizio installato scarica anche il motore Firefox. Da terminale:
+`stream-launcher templates` e `stream-launcher add <modello>`.
 
 Se un servizio dice che il browser o il sistema non è supportato, imposta lo
 user agent «Firefox su Windows».
@@ -38,7 +38,7 @@ user agent «Firefox su Windows».
 ## Installazione
 
 ```bash
-./install.sh              # installa l'app, scarica il runtime, crea i servizi predefiniti
+./install.sh              # installa l'app (servizi e runtime si scelgono poi dal catalogo)
 ./install.sh --update     # riscarica anche il runtime Firefox
 ./install.sh --uninstall  # rimuove app, runtime, profili, voci di menu e tray
 ```
@@ -51,15 +51,16 @@ ferma senza toccare l'installazione esistente.
 
 Scarica `StreamLauncher-Setup-<versione>.exe` dagli artifact della action
 **Windows** (o dalle release, per le versioni taggate) e installalo: non servono
-Python né permessi di amministratore. L'installer scarica il runtime Firefox,
-crea i servizi con le loro voci nel menu Start (cartella *Stream Launcher*) e
-avvia la tray anche al login. La disinstallazione toglie app, runtime e profili;
+Python né permessi di amministratore. L'installer è leggero: mette il launcher
+nel menu Start (cartella *Stream Launcher*) e avvia la tray anche al login; i
+servizi si installano dal catalogo e ognuno ha la sua voce nel menu Start. Le
+finestre di un servizio compaiono nella barra delle applicazioni con il suo nome
+e la sua icona, raggruppate a parte, e si possono aggiungere alla barra. La disinstallazione toglie app, runtime e profili;
 la configurazione in `%APPDATA%\stream-launcher` resta.
 
 `StreamLauncher.exe` accetta gli stessi comandi della versione Linux, ad esempio
-`StreamLauncher.exe list` da un prompt. Le password si importano da Chrome, Edge,
-Chromium o Brave: i login che il browser ha già cifrato con la cifratura legata
-all'app (prefisso `v20`) vengono saltati.
+`StreamLauncher.exe list` da un prompt. I login che il browser ha cifrato con la
+cifratura legata all'app (prefisso `v20`) vengono saltati.
 
 ## Uso
 
@@ -67,8 +68,9 @@ all'app (prefisso `v20`) vengono saltati.
   Su Windows basta il clic sinistro, su Linux il clic sinistro apre le impostazioni
   e il menu è sul tasto destro. La tray parte da sola al login.
 - **Menu applicazioni**: ogni servizio ha la sua voce; tasto destro → *Impostazioni*.
-- **Stream Launcher** (menu) apre la finestra impostazioni: aggiungi da modello (+),
+- **Stream Launcher** (menu) apre la finestra: installa dal catalogo, avvia,
   modifica nome, indirizzo, user agent, proxy e addon, duplica o elimina.
+  **Password** importa i login da un browser (vedi sotto).
 
 Da terminale:
 
@@ -87,6 +89,8 @@ stream-launcher addon netflix add chrome:<id-di-32-lettere>
 stream-launcher addon netflix add ~/addon/mio.crx    # anche .xpi o cartella
 stream-launcher addon netflix update                 # riscarica gli addon
 stream-launcher runtime info | install [--channel esr|release]
+stream-launcher passwords import [--browser microsoft-edge]  # login dei servizi nell'archivio
+stream-launcher passwords list | clear
 ```
 
 Le modifiche valgono dal prossimo avvio del servizio.
@@ -137,15 +141,15 @@ all'installazione dai siti dei servizi.
   un'estensione interna e richiedono il runtime ESR. **Prova connessione**
   (finestra impostazioni) o `proxy-test` verificano con lo stesso protocollo di
   Firefox IP e paese di uscita (via ipinfo.io) e che il sito del servizio risponda.
-- **Password**: se il browser predefinito è Chrome, Chromium o Brave, a ogni
-  avvio di un servizio i login salvati lì per i suoi domini (es. Prime Video:
-  primevideo.com, amazon.it, amazon.com) vengono importati nel profilo: nuovi
-  login e password cambiate. Sono decifrati con la chiave del portachiavi GNOME,
-  passati a Firefox in un file con permessi 600 che viene cancellato appena
-  importato. Si disattiva per servizio (finestra impostazioni o
-  `stream-launcher passwords <id> off`); `passwords <id> check` mostra quali
-  login verrebbero importati (siti e utenti, mai le password). Per leggere da un
-  browser diverso dal predefinito: `STREAM_LAUNCHER_PASSWORD_BROWSER=chromium`.
+- **Password**: si importano una volta, per tutto il launcher, dalla pagina
+  **Password** (o `passwords import`) scegliendo il browser: Chrome, Edge,
+  Chromium o Brave. Vengono letti solo i login dei siti dei servizi (installati
+  e del catalogo, con gli alias noti: Prime Video usa anche amazon.it e
+  amazon.com) e salvati in un archivio del launcher, nel portachiavi GNOME su
+  Linux o in un file cifrato con DPAPI su Windows. A ogni avvio, ogni servizio
+  riceve i login del suo sito: Firefox li legge da un file con permessi 600 che
+  viene cancellato appena importato. Ripeti l'import quando cambi una password;
+  `passwords list` mostra siti e utenti, mai le password.
 - **"L'applicazione non risponde"**: succede se runtime e profili stanno su un
   disco lento o saturo (HDD, trim in corso). Spostali su SSD con `storage move`.
 - **Addon Chrome**: vengono convertiti al volo (id Gecko, service worker →

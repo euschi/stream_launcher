@@ -37,7 +37,7 @@ Source: "..\dist\StreamLauncher\*"; DestDir: "{app}"; Flags: ignoreversion recur
 Name: "{userstartup}\Stream Launcher"; Filename: "{app}\StreamLauncher.exe"; Parameters: "tray"
 
 [Run]
-Filename: "{app}\StreamLauncher.exe"; Parameters: "init"; StatusMsg: "Scarico il runtime Firefox e preparo i servizi…"; Flags: runhidden waituntilterminated
+Filename: "{app}\StreamLauncher.exe"; Parameters: "init"; StatusMsg: "Preparo Stream Launcher…"; Flags: runhidden waituntilterminated
 Filename: "{app}\StreamLauncher.exe"; Parameters: "settings"; Description: "Apri Stream Launcher"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]

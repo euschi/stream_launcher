@@ -33,7 +33,6 @@ jobs:
           $env:APPDATA = "$env:RUNNER_TEMP\appdata"; $env:LOCALAPPDATA = "$env:RUNNER_TEMP\localappdata"
           New-Item -ItemType Directory -Force $env:APPDATA, $env:LOCALAPPDATA | Out-Null
           python -m stream_launcher init
-          python -m stream_launcher list
           python windows/smoke_test.py
 
       - name: Eseguibile (PyInstaller)
@@ -81,10 +80,11 @@ jobs:
           Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
           $app = "$env:LOCALAPPDATA\Programs\Stream Launcher\StreamLauncher.exe"
           if (-not (Test-Path $app)) { throw "app non installata" }
-          if (-not (Test-Path "$env:LOCALAPPDATA\stream-launcher\firefox\firefox.exe")) { throw "runtime non scaricato dall'installer" }
+          # Prima installazione leggera: niente servizi né runtime finché l'utente non sceglie.
+          if (Test-Path "$env:LOCALAPPDATA\stream-launcher\firefox") { throw "l'installer non deve scaricare il runtime" }
           $n = (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Stream Launcher\*.lnk").Count
-          if ($n -lt 10) { throw "voci del menu Start: $n" }
-          Write-Output "Installer OK: $n voci nel menu Start"
+          if ($n -ne 1) { throw "voci del menu Start attese 1 (il launcher), trovate $n" }
+          Write-Output "Installer OK"
 
       - uses: actions/upload-artifact@v4
         with:
