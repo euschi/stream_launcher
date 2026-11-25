@@ -16,6 +16,7 @@ jobs:
         shell: pwsh
     env:
       PSNativeCommandUseErrorActionPreference: true
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 

@@ -277,7 +277,13 @@ def build_parser() -> argparse.ArgumentParser:
 def _windows_console() -> None:
     """L'eseguibile Windows non ha console: si aggancia a quella di chi lo lancia
     (prompt, PowerShell), altrimenti scrive nel log."""
-    if sys.platform != "win32" or sys.stdout is not None:
+    if sys.platform != "win32":
+        return
+    if sys.stdout is not None:
+        # Console o pipe in codifica Windows (cp1252): un carattere fuori tabella non deve far fallire.
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
         return
     import ctypes
 
