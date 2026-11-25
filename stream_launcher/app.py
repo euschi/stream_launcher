@@ -35,7 +35,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QStackedWidget,
     QSystemTrayIcon,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -66,10 +65,12 @@ QWidget {{ color: {TEXT}; font-size: 13px; }}
 QMainWindow, QScrollArea, QScrollArea > QWidget > QWidget, QDialog {{ background: {BG}; }}
 QLabel[role="title"] {{ font-size: 20px; font-weight: 700; }}
 QLabel[role="name"] {{ font-size: 15px; font-weight: 600; }}
+QLabel[role="section"] {{ font-size: 16px; font-weight: 700; }}
+QFrame#catalog {{ background: transparent; border: 1px dashed {BORDER}; border-radius: 14px; }}
+QFrame#catalog:hover {{ background: {SURFACE}; }}
 QLabel[role="muted"] {{ color: {MUTED}; }}
 QFrame#row {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 14px; }}
 QFrame#row:hover {{ background: {SURFACE_HI}; border-color: #4a4257; }}
-QFrame#banner {{ background: #2a1d17; border: 1px solid #ff9f1c; border-radius: 12px; }}
 QListWidget {{ background: transparent; border: none; outline: none; }}
 QListWidget::item, QListWidget::item:selected, QListWidget::item:hover {{ background: transparent; border: none; }}
 QListWidget#addons {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 10px; padding: 4px; }}
@@ -202,6 +203,10 @@ def _button(label: str, fn, kind: str = "") -> QPushButton:
     return b
 
 
+def _host(url: str) -> str:
+    return url.split("://", 1)[-1].split("/", 1)[0]
+
+
 def _header(title: str, subtitle: str = "", icon: QIcon | None = None) -> tuple[QHBoxLayout, QHBoxLayout]:
     """Intestazione di pagina: (riga completa, riga dei pulsanti a destra)."""
     row = QHBoxLayout()
@@ -226,32 +231,18 @@ def _header(title: str, subtitle: str = "", icon: QIcon | None = None) -> tuple[
 
 
 class ServiceList(QWidget):
+    """In cima i servizi installati, sotto il catalogo da cui installarne altri."""
+
     def __init__(self, win: "Window"):
         super().__init__()
         self.win = win
+        self.busy: set[str] = set()  # modelli in installazione
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 8)
         layout.setSpacing(16)
-
         header, actions = _header("Stream Launcher", "Ogni servizio ha profilo, login, proxy e addon separati", app_icon())
-        add = QToolButton(text="+  Aggiungi", popupMode=QToolButton.InstantPopup)
-        add.setProperty("kind", "accent")
-        add.setCursor(Qt.PointingHandCursor)
-        menu = QMenu(add)
-        for t in core.list_templates():
-            menu.addAction(t.name, lambda tid=t.id: win.add_template(tid))
-        add.setMenu(menu)
-        actions.addWidget(add)
+        actions.addWidget(_button("🔑  Password", win.open_passwords))
         layout.addLayout(header)
-
-        self.banner = QFrame(objectName="banner")
-        row = QHBoxLayout(self.banner)
-        row.setContentsMargins(14, 10, 10, 10)
-        self.banner_label = _label("Runtime Firefox non installato: serve per avviare i servizi")
-        self.banner_btn = _button("Installa", self._install_runtime, "accent")
-        row.addWidget(self.banner_label, 1)
-        row.addWidget(self.banner_btn)
-        layout.addWidget(self.banner)
 
         self.list = QListWidget()
         self.list.setSpacing(5)
@@ -260,53 +251,84 @@ class ServiceList(QWidget):
         self.list.itemClicked.connect(lambda it: win.open_editor(it.data(Qt.UserRole)))
         layout.addWidget(self.list, 1)
         self.refresh()
+        # Icone del catalogo: si scaricano una volta, in background.
+        run_async(core.fetch_catalog_icons, lambda n: n and self.refresh(), lambda _e: None)
 
-    def refresh(self) -> None:
-        self.banner.setVisible(not core.runtime_installed())
-        self.list.clear()
-        services = core.list_services()
-        if not services:
-            self.list.addItem("Nessun servizio: aggiungine uno con «Aggiungi»")
-        for svc in services:
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, svc.id)
-            self.list.addItem(item)
-            row = QFrame(objectName="row")
-            row.setAttribute(Qt.WA_Hover)
+    def _section(self, title: str, note: str) -> None:
+        item = QListWidgetItem()
+        item.setFlags(Qt.NoItemFlags)
+        self.list.addItem(item)
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(4, 12, 4, 2)
+        v.setSpacing(0)
+        v.addWidget(_label(title, "section"))
+        v.addWidget(_label(note, "muted"))
+        item.setSizeHint(box.sizeHint())
+        self.list.setItemWidget(item, box)
+
+    def _row(self, icon: QIcon, name: str, detail: str, buttons: list[QPushButton], service_id: str | None) -> None:
+        item = QListWidgetItem()
+        item.setData(Qt.UserRole, service_id)
+        self.list.addItem(item)
+        row = QFrame(objectName="row" if service_id else "catalog")
+        row.setAttribute(Qt.WA_Hover)
+        if service_id:
             row.setCursor(Qt.PointingHandCursor)
             row.setToolTip("Modifica")
-            h = QHBoxLayout(row)
-            h.setContentsMargins(14, 10, 12, 10)
-            h.setSpacing(14)
-            icon = QLabel()
-            icon.setPixmap(service_icon(svc).pixmap(40, 40))
-            text = QVBoxLayout()
-            text.setSpacing(2)
-            text.addWidget(_label(svc.name, "name"))
-            host = svc.url.split("://", 1)[-1].split("/", 1)[0]
-            text.addWidget(_label(f"{host}  ·  {svc.proxy.describe()}", "muted"))
-            h.addWidget(icon)
-            h.addLayout(text, 1)
-            h.addWidget(_button("▶  Avvia", lambda sid=svc.id: self.win.launch(sid), "accent"))
-            h.addWidget(_button("Elimina", lambda s=svc: self.win.confirm_delete(s), "danger"))
-            item.setSizeHint(row.sizeHint())
-            self.list.setItemWidget(item, row)
+        h = QHBoxLayout(row)
+        h.setContentsMargins(14, 10, 12, 10)
+        h.setSpacing(14)
+        pic = QLabel()
+        pic.setPixmap(icon.pixmap(40, 40))
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        text.addWidget(_label(name, "name"))
+        text.addWidget(_label(detail, "muted"))
+        h.addWidget(pic)
+        h.addLayout(text, 1)
+        for b in buttons:
+            h.addWidget(b)
+        item.setSizeHint(row.sizeHint())
+        self.list.setItemWidget(item, row)
 
-    def _install_runtime(self) -> None:
-        self.banner_btn.setEnabled(False)
-        self.banner_label.setText("Scarico il runtime Firefox…")
+    def refresh(self) -> None:
+        self.list.clear()
+        services = core.list_services()
+        installed = {s.id for s in services}
+        self._section("I tuoi servizi", "Clic su un servizio per proxy, addon e duplicati."
+                      if services else "Ancora nessuno: installali dal catalogo qui sotto.")
+        for svc in services:
+            self._row(
+                service_icon(svc), svc.name, f"{_host(svc.url)}  ·  {svc.proxy.describe()}",
+                [_button("▶  Avvia", lambda sid=svc.id: self.win.launch(sid), "accent"),
+                 _button("Elimina", lambda s=svc: self.win.confirm_delete(s), "danger")],
+                svc.id,
+            )
+        catalog = [t for t in core.list_templates() if t.id not in installed]
+        self._section("Catalogo", "Installa solo quello che usi. Il primo servizio scarica anche il motore Firefox."
+                      if catalog else "Hai installato tutto il catalogo.")
+        for t in catalog:
+            icon_file = core.catalog_icon_path(t.id)
+            busy = t.id in self.busy
+            button = _button("Installo…" if busy else "Installa", lambda tid=t.id: self.install(tid), "" if busy else "accent")
+            button.setEnabled(not busy)
+            self._row(QIcon(str(icon_file)) if icon_file.is_file() else app_icon(), t.name, _host(t.url), [button], None)
 
-        def done(msg: str) -> None:
-            self.banner_btn.setEnabled(True)
-            self.banner_label.setText("Runtime Firefox non installato: serve per avviare i servizi")
-            self.win.toast(msg)
+    def install(self, template_id: str) -> None:
+        self.busy.add(template_id)
+        self.refresh()
+        first = not core.runtime_installed()
+        self.win.toast("Scarico il motore Firefox e installo…" if first else "Installo…")
+
+        def finish(message: str) -> None:
+            self.busy.discard(template_id)
             self.refresh()
+            self.win.toast(message)
 
-        run_async(
-            lambda: f"Runtime Firefox {core.install_runtime()} installato",
-            done,
-            lambda e: done(f"Installazione non riuscita: {e}"),
-        )
+        run_async(lambda: core.add_from_template(template_id),
+                  lambda svc: finish(f"«{svc.name}» installato"),
+                  lambda e: finish(f"Installazione non riuscita: {e}"))
 
 
 # --------------------------------------------------------------------------- modifica
@@ -332,7 +354,7 @@ class Editor(QScrollArea):
         top.addWidget(save)
         layout.addLayout(header)
 
-        for group in (self._service_group(), self._proxy_group(), self._password_group(), self._addon_group()):
+        for group in (self._service_group(), self._proxy_group(), self._addon_group()):
             form = group.layout()
             if isinstance(form, QFormLayout):  # etichette della stessa larghezza in tutti i riquadri
                 for i in range(form.rowCount()):
@@ -412,29 +434,6 @@ class Editor(QScrollArea):
         form.addRow(self._side_by_side(self.test_btn, self.test_result))
         return g
 
-    def _password_group(self) -> QGroupBox:
-        from .passwords import default_browser, domains_for
-
-        source = default_browser()
-        browser = source.name if source else "browser predefinito"
-        g = QGroupBox("Password")
-        form = self._form(g)
-        form.addRow(_note(f"A ogni avvio i login di questo servizio salvati in {browser} vengono "
-                          "importati nel profilo (nuovi e password cambiate). Solo i domini indicati."))
-        self.pw_switch = QCheckBox(f"Importa password da {browser}")
-        self.pw_switch.setChecked(self.svc.passwords == "auto" and source is not None)
-        self.pw_switch.setEnabled(source is not None)
-        self.pw_switch.toggled.connect(self._sync_sensitivity)
-        self.pw_domains = QLineEdit(", ".join(self.svc.login_domains))
-        self.pw_domains.setPlaceholderText(f"vuoto = {', '.join(domains_for(self.svc.url))}")
-        check = _button("Controlla login", self._check_passwords)
-        check.setEnabled(source is not None)
-        self.pw_result = _note("" if source else "Il browser predefinito non è Chrome, Edge, Chromium o Brave.")
-        form.addRow(self.pw_switch)
-        form.addRow("Domini", self.pw_domains)
-        form.addRow(self._side_by_side(check, self.pw_result))
-        return g
-
     def _addon_group(self) -> QGroupBox:
         g = QGroupBox("Addon")
         v = QVBoxLayout(g)
@@ -460,8 +459,6 @@ class Editor(QScrollArea):
         active = self.proxy_type.currentData() != "none"
         for w in (self.proxy_host, self.proxy_port, self.proxy_user, self.proxy_pass):
             w.setEnabled(active)
-        if hasattr(self, "pw_switch"):
-            self.pw_domains.setEnabled(self.pw_switch.isChecked())
 
     def _render_addons(self) -> None:
         self.addon_list.clear()
@@ -519,25 +516,6 @@ class Editor(QScrollArea):
 
         run_async(work, done, lambda e: done(f"✘ Non funziona: {e}"))
 
-    def _check_passwords(self) -> None:
-        from .passwords import PasswordError, default_browser, read_logins
-
-        svc = self._collect()
-        self.pw_result.setText("Controllo…")
-
-        def work():
-            try:
-                logins = read_logins(default_browser(), core.login_domains(svc))
-            except PasswordError as e:
-                return f"Errore: {e}"
-            if not logins:
-                return "Nessun login salvato per questi domini"
-            # Mai le password: solo siti e utenti.
-            people = sorted({f"{lg['username']} ({lg['origin'].split('://', 1)[1]})" for lg in logins})
-            return f"{len(logins)} login: " + ", ".join(people)
-
-        run_async(work, self.pw_result.setText, self.pw_result.setText)
-
     def _collect(self) -> core.Service:
         ua_key = self.ua.currentData()
         ptype = self.proxy_type.currentData()
@@ -559,8 +537,8 @@ class Editor(QScrollArea):
             addons=list(self.addons),
             proxy=proxy,
             # Senza browser compatibile la casella è spenta: non sovrascrivo la scelta salvata.
-            passwords=("auto" if self.pw_switch.isChecked() else "off") if self.pw_switch.isEnabled() else self.svc.passwords,
-            login_domains=core.split_domains(self.pw_domains.text()),
+            passwords=self.svc.passwords,
+            login_domains=self.svc.login_domains,
         )
 
     def save(self, then=None) -> None:
@@ -604,6 +582,114 @@ class Editor(QScrollArea):
         run_async(lambda: core.duplicate_service(src_id, new_name, copy_profile=copy), done, self.win.toast)
 
 
+# --------------------------------------------------------------------------- password
+
+
+class PasswordsPage(QScrollArea):
+    """Import globale: un browser, solo i login dei servizi, in un archivio protetto."""
+
+    def __init__(self, win: "Window"):
+        from .passwords import default_browser, installed_browsers
+
+        super().__init__()
+        self.win = win
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(22, 14, 22, 18)
+        layout.setSpacing(10)
+        layout.addWidget(_button("←  Tutti i servizi", win.show_list, "ghost"), 0, Qt.AlignLeft)
+        header, _ = _header("Password", "Login dei servizi importati da un browser", app_icon())
+        layout.addLayout(header)
+
+        g = QGroupBox("Importa")
+        v = QVBoxLayout(g)
+        v.addWidget(_note(
+            "Dal browser scelto vengono letti SOLO i login dei siti dei servizi (quelli installati e "
+            "quelli del catalogo) e salvati in un archivio protetto del launcher: il portachiavi di "
+            "sistema su Linux, un file cifrato con il tuo utente su Windows. A ogni avvio, ogni "
+            "servizio riceve i login del suo sito. Ripeti l'import quando cambi una password."))
+        row = QHBoxLayout()
+        self.browser = QComboBox()
+        default = default_browser()
+        for b in installed_browsers():
+            suffix = " (predefinito)" if default and b.desktop_id == default.desktop_id else ""
+            self.browser.addItem(b.name + suffix, b)
+        if not self.browser.count():
+            self.browser.addItem("Nessun browser compatibile trovato (Chrome, Edge, Chromium, Brave)", None)
+        if default:
+            self.browser.setCurrentIndex(max(0, self.browser.findText(default.name + " (predefinito)")))
+        self.import_btn = _button("Importa", self._import, "accent")
+        self.import_btn.setEnabled(self.browser.currentData() is not None)
+        row.addWidget(self.browser, 1)
+        row.addWidget(self.import_btn)
+        v.addLayout(row)
+        layout.addWidget(g)
+
+        g = QGroupBox("Nell'archivio")
+        v = QVBoxLayout(g)
+        self.status = _note("")
+        self.logins = QListWidget(objectName="addons")
+        self.logins.setMinimumHeight(220)
+        v.addWidget(self.status)
+        v.addWidget(self.logins)
+        v.addWidget(_button("Svuota l'archivio", self._clear, "danger"), 0, Qt.AlignRight)
+        layout.addWidget(g)
+        layout.addStretch(1)
+        self.setWidget(body)
+        self._load()
+
+    def _show(self, store: dict) -> None:
+        self.logins.clear()
+        logins = store.get("logins", [])
+        if not store:
+            self.status.setText("Archivio vuoto: scegli un browser e premi Importa.")
+        else:
+            when = store["updated"].replace("T", " alle ")
+            self.status.setText(f"{len(logins)} login da {store['browser']}, importati il {when}.")
+        # Mai le password: solo siti e utenti.
+        for lg in sorted(logins, key=lambda x: (x["origin"], x["username"])):
+            self.logins.addItem(f"{_host(lg['origin'])}  ·  {lg['username']}")
+
+    def _load(self) -> None:
+        from .passwords import load_store
+
+        self.status.setText("Leggo l'archivio…")
+        run_async(load_store, self._show, self.win.toast)
+
+    def _import(self) -> None:
+        from .passwords import PasswordError, import_logins
+
+        source = self.browser.currentData()
+        self.import_btn.setEnabled(False)
+        self.status.setText(f"Importo da {source.name}…")
+
+        def work():
+            try:
+                return import_logins(source, core.all_login_domains())
+            except PasswordError as e:
+                raise LauncherError(str(e)) from e
+
+        def done(store):
+            self.import_btn.setEnabled(True)
+            self._show(store)
+            self.win.toast(f"Importati {len(store['logins'])} login da {source.name}")
+
+        def failed(err):
+            self.import_btn.setEnabled(True)
+            self.status.setText(f"Import non riuscito: {err}")
+
+        run_async(work, done, failed)
+
+    def _clear(self) -> None:
+        from .passwords import clear_store
+
+        if QMessageBox.question(self, "Svuotare l'archivio?", "I servizi non riceveranno più i login importati.") \
+                == QMessageBox.Yes:
+            run_async(clear_store, lambda _: self._show({}), self.win.toast)
+
+
 # --------------------------------------------------------------------------- finestra e tray
 
 
@@ -617,7 +703,7 @@ class Window(QMainWindow):
         self.setCentralWidget(self.stack)
         self.list_page = ServiceList(self)
         self.stack.addWidget(self.list_page)
-        self.editor: Editor | None = None
+        self.editor: QWidget | None = None  # pagina aperta sopra l'elenco (servizio o password)
 
     def toast(self, message: str) -> None:
         self.statusBar().showMessage(message, 6000)
@@ -643,17 +729,19 @@ class Window(QMainWindow):
         self.stack.addWidget(self.editor)
         self.stack.setCurrentWidget(self.editor)
 
-    def launch(self, service_id: str) -> None:
-        if not core.runtime_installed():
-            self.toast("Installa prima il runtime Firefox")
-            return
-        core.launch_detached(service_id)
-        self.toast("Avvio in corso…")
+    def open_passwords(self) -> None:
+        self.show_list()
+        self.editor = PasswordsPage(self)
+        self.stack.addWidget(self.editor)
+        self.stack.setCurrentWidget(self.editor)
 
-    def add_template(self, template_id: str) -> None:
-        self.toast("Aggiungo…")
-        # Scarica l'icona: in background.
-        run_async(lambda: core.add_from_template(template_id), lambda svc: self.open_editor(svc.id), self.toast)
+    def launch(self, service_id: str) -> None:
+        if core.runtime_installed():
+            core.launch_detached(service_id)
+            self.toast("Avvio in corso…")
+            return
+        self.toast("Scarico il motore Firefox, poi avvio…")
+        run_async(core.ensure_runtime, lambda _: self.launch(service_id), self.toast)
 
     def confirm_delete(self, svc: core.Service, after=None) -> None:
         answer = QMessageBox.question(
@@ -717,8 +805,9 @@ class Controller(QObject):
             self.show_settings()
 
     def launch(self, service_id: str) -> None:
-        if not core.runtime_installed():
+        if not core.runtime_installed():  # il download si vede nella finestra
             self.show_settings()
+            self.window.launch(service_id)
             return
         core.launch_detached(service_id)
 

@@ -321,9 +321,28 @@ def add_from_template(template_id: str, name: str | None = None, new_id: str | N
     svc.id = validate_id(new_id) if new_id else unique_id(template_id)
     if svc.config_path.exists():
         raise LauncherError(f"Esiste già un servizio con ID «{svc.id}».")
+    ensure_runtime()
     save_service(svc)
+    catalog = catalog_icon_path(template_id)
+    if catalog.is_file() and not svc.icon_path.is_file():
+        shutil.copyfile(catalog, svc.icon_path)
     refresh_desktop_entry(svc)
     return svc
+
+
+def catalog_icon_path(template_id: str) -> Path:
+    return ICONS_DIR / "catalog" / f"{template_id}.png"
+
+
+def fetch_catalog_icons() -> int:
+    """Scarica le icone dei modelli che non le hanno ancora; ritorna quante."""
+    fetched = 0
+    for t in list_templates():
+        dest = catalog_icon_path(t.id)
+        if not dest.is_file():
+            fetch_icon(t, dest)
+            fetched += dest.is_file()
+    return fetched
 
 
 def duplicate_service(
@@ -361,29 +380,6 @@ def remove_service(service_id: str, keep_profile: bool = False) -> None:
     if not keep_profile:
         shutil.rmtree(svc.profile_dir, ignore_errors=True)
     remove_desktop_entry(svc)
-
-
-def seed_default_services() -> list[Service]:
-    """Crea un servizio per ogni modello mai proposto prima.
-
-    I modelli già proposti sono registrati in settings.ini: così un aggiornamento
-    aggiunge i servizi nuovi, ma quelli che l'utente ha eliminato non ricompaiono.
-    """
-    cp = _settings()
-    if not cp.has_section("templates"):
-        cp["templates"] = {}
-    seeded = {t for t in cp["templates"].get("seeded", "").split(",") if t}
-    added = []
-    for t in list_templates():
-        if t.id in seeded:
-            continue
-        seeded.add(t.id)
-        if (SERVICES_DIR / f"{t.id}.ini").exists():
-            continue
-        added.append(add_from_template(t.id, new_id=t.id))
-    cp["templates"]["seeded"] = ",".join(sorted(seeded))
-    _write_settings(cp)
-    return added
 
 
 # --------------------------------------------------------------------------- impostazioni globali
@@ -493,10 +489,17 @@ def _extract_runtime(archive: Path, tmp: Path) -> Path:
     else:
         out.mkdir()
         subprocess.run(["tar", "-xf", str(archive), "-C", str(out)], check=True)
-    exe = next(out.rglob(firefox_binary().name), None)
+    # Solo file: su Linux anche la cartella che contiene l'eseguibile si chiama "firefox".
+    exe = next((f for f in out.rglob(firefox_binary().name) if f.is_file()), None)
     if not exe:
         raise LauncherError("Archivio del runtime Firefox non riconosciuto.")
     return exe.parent
+
+
+def ensure_runtime() -> None:
+    """Scarica il runtime alla prima occasione in cui serve davvero."""
+    if not runtime_installed():
+        install_runtime()
 
 
 def install_runtime(channel: str | None = None) -> str:
@@ -655,23 +658,20 @@ def login_domains(svc: Service) -> list[str]:
     return svc.login_domains or domains_for(svc.url)
 
 
-def sync_passwords(svc: Service, log=print) -> int:
-    """Prepara l'import delle password del browser predefinito; ritorna quante."""
-    from .passwords import PasswordError, default_browser, read_logins, stage_import
+def all_login_domains() -> list[str]:
+    """Domini di tutti i servizi, installati e del catalogo: sono gli unici login importati."""
+    domains: set[str] = set()
+    for svc in [*list_services(), *list_templates()]:
+        domains.update(login_domains(svc))
+    return sorted(domains)
 
-    if svc.passwords == "off":
-        stage_import(svc.profile_dir, [])  # toglie eventuali residui
-        return 0
-    source = default_browser()
-    if not source:
-        log("Password: il browser predefinito non è Chrome/Chromium/Brave, niente import.")
-        return 0
-    try:
-        logins = read_logins(source, login_domains(svc))
-    except PasswordError as e:
-        log(f"Password non importate: {e}")
-        return 0
-    stage_import(svc.profile_dir, logins)
+
+def sync_passwords(svc: Service, log=print) -> int:
+    """Passa al profilo i login del servizio presi dall'archivio del launcher; ritorna quanti."""
+    from .passwords import logins_for, stage_import
+
+    logins = [] if svc.passwords == "off" else logins_for(login_domains(svc))
+    stage_import(svc.profile_dir, logins)  # senza login toglie anche eventuali residui
     return len(logins)
 
 
@@ -887,15 +887,16 @@ def sync_addons(svc: Service, log=print, refresh: bool = False) -> list[str]:
 # --------------------------------------------------------------------------- menu applicazioni
 
 
-def fetch_icon(svc: Service) -> None:
+def fetch_icon(svc: Service, dest: Path | None = None) -> None:
     """Scarica l'icona (marchi registrati: non stanno nel repo)."""
+    dest = dest or svc.icon_path
     host = urllib.parse.urlparse(svc.url).hostname or ""
     url = svc.icon_url or f"https://www.google.com/s2/favicons?domain={host}&sz=256"
-    ICONS_DIR.mkdir(parents=True, exist_ok=True)
+    dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        _download(url, svc.icon_path)
+        _download(url, dest)
     except LauncherError:
-        svc.icon_path.unlink(missing_ok=True)
+        dest.unlink(missing_ok=True)
 
 
 def refresh_desktop_entry(svc: Service, icon: bool = True) -> None:
@@ -1011,20 +1012,6 @@ def update_desktop_database() -> None:
 
 # --- Windows: collegamenti .lnk nel menu Start
 
-_SHORTCUT_PS = r"""
-$sh = New-Object -ComObject WScript.Shell
-foreach ($e in (ConvertFrom-Json $env:SL_SHORTCUTS)) {
-  $s = $sh.CreateShortcut($e.path)
-  $s.TargetPath = $e.target
-  $s.Arguments = $e.args
-  $s.WorkingDirectory = $e.dir
-  $s.Description = $e.desc
-  if ($e.icon) { $s.IconLocation = $e.icon }
-  $s.Save()
-}
-"""
-
-
 def _png_to_ico(svc: Service) -> str:
     """Windows vuole icone .ico per i collegamenti: un .ico può contenere un PNG così com'è."""
     try:
@@ -1044,39 +1031,31 @@ def _png_to_ico(svc: Service) -> str:
 
 
 def _sync_shortcuts(services: list[Service] | None = None) -> None:
+    """Ricrea le voci del menu Start. Ogni servizio porta l'AppUserModelID delle finestre
+    Firefox del suo profilo: la barra delle applicazioni ne mostra icona e nome."""
+    from .winshell import create_shortcut, firefox_aumid
+
     services = list_services() if services is None else services
     APPS_DIR.mkdir(parents=True, exist_ok=True)
     for old in APPS_DIR.glob("*.lnk"):
         old.unlink(missing_ok=True)
     target, *base_args = self_command()
     prefix = subprocess.list2cmdline(base_args)
-
-    def entry(name: str, args: str, desc: str, icon: str = "") -> dict:
-        return {
-            "path": str(APPS_DIR / f"{name}.lnk"),
-            "target": target,
-            "args": f"{prefix} {args}".strip(),
-            "dir": str(Path(target).parent),
-            "desc": desc,
-            "icon": icon,
-        }
-
-    entries = [entry("Stream Launcher", "settings", "Gestisci i servizi di streaming: proxy, addon, duplicati")]
+    entries = [("Stream Launcher", "settings", "Gestisci i servizi di streaming: proxy, addon, duplicati", "", "")]
     used = {"stream launcher"}
     for svc in services:
         name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", svc.name).strip(" .") or svc.id
         if name.lower() in used:
             name = f"{name} ({svc.id})"
         used.add(name.lower())
-        entries.append(entry(name, f"run {svc.id}", f"{svc.name} su motore Firefox ({svc.proxy.describe()})", _png_to_ico(svc)))
-    env = {**os.environ, "SL_SHORTCUTS": json.dumps(entries)}
-    try:
-        subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", _SHORTCUT_PS],
-            env=env, capture_output=True, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW, check=True,
-        )
-    except (OSError, subprocess.SubprocessError) as e:
-        print(f"Collegamenti del menu Start non creati: {e}", file=sys.stderr)
+        desc = f"{svc.name} su motore Firefox ({svc.proxy.describe()})"
+        entries.append((name, f"run {svc.id}", desc, _png_to_ico(svc), firefox_aumid(str(svc.profile_dir))))
+    for name, args, desc, icon, aumid in entries:
+        try:
+            create_shortcut(str(APPS_DIR / f"{name}.lnk"), target, f"{prefix} {args}".strip(),
+                            str(Path(target).parent), desc, icon, aumid)
+        except OSError as e:
+            print(f"Collegamento «{name}» non creato: {e}", file=sys.stderr)
 
 
 # --------------------------------------------------------------------------- avvio
@@ -1084,8 +1063,7 @@ def _sync_shortcuts(services: list[Service] | None = None) -> None:
 
 def launch(svc: Service) -> None:
     """Avvia Firefox sul profilo del servizio (su Linux sostituisce il processo corrente)."""
-    if not runtime_installed():
-        raise LauncherError("Runtime Firefox non installato: esegui «stream-launcher runtime install».")
+    ensure_runtime()
     env = os.environ.copy()
     if IS_WIN:
         args = [str(firefox_binary()), "--profile", str(svc.profile_dir)]
