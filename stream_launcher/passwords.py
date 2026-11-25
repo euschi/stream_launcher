@@ -1,4 +1,8 @@
-"""Password dal browser predefinito (famiglia Chromium) verso i profili dei servizi.
+"""Password da un browser (famiglia Chromium) verso i profili dei servizi.
+
+Il launcher importa una volta, a livello globale, SOLO i login dei domini dei servizi
+in un archivio locale protetto (portachiavi GNOME su Linux, DPAPI su Windows).
+A ogni avvio di un servizio i login del suo dominio passano dall'archivio a Firefox.
 
 Chrome su Linux cifra le password con AES-128-CBC; la chiave deriva (PBKDF2) dalla
 password "Chrome Safe Storage" custodita nel portachiavi GNOME (libsecret).
@@ -67,30 +71,41 @@ def _windows_default() -> str:
     return ""
 
 
-def default_browser() -> Source | None:
-    """Browser da cui leggere le password: quello predefinito, o quello forzato
-    con STREAM_LAUNCHER_PASSWORD_BROWSER (es. google-chrome, chromium, brave-browser,
-    microsoft-edge)."""
-    desktop_id = os.environ.get("STREAM_LAUNCHER_PASSWORD_BROWSER", "").strip()
+def _source(key: str) -> Source | None:
+    """Browser per chiave (es. google-chrome, microsoft-edge), se lo conosciamo."""
+    key = key.removesuffix(".desktop")
     if sys.platform == "win32":
-        name = desktop_id or _windows_default()
-        if name not in WIN_BROWSERS:
+        if key not in WIN_BROWSERS:
             return None
-        rel, label = WIN_BROWSERS[name]
+        rel, label = WIN_BROWSERS[key]
         user_data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / rel
-        return Source(name, label, user_data / "Default", "")
-    if not desktop_id:
+        return Source(key, label, user_data / "Default", "")
+    if key not in BROWSERS:
+        return None
+    base, app, label = BROWSERS[key]
+    return Source(key, label, Path(base).expanduser() / "Default", app)
+
+
+def default_browser() -> Source | None:
+    """Il browser predefinito del sistema, o quello forzato con
+    STREAM_LAUNCHER_PASSWORD_BROWSER (es. google-chrome, chromium, brave-browser, microsoft-edge)."""
+    key = os.environ.get("STREAM_LAUNCHER_PASSWORD_BROWSER", "").strip()
+    if not key and sys.platform == "win32":
+        key = _windows_default()
+    elif not key:
         try:
-            desktop_id = subprocess.run(
+            key = subprocess.run(
                 ["xdg-settings", "get", "default-web-browser"], capture_output=True, text=True, timeout=5
             ).stdout.strip()
         except (OSError, subprocess.TimeoutExpired):
             return None
-    desktop_id = desktop_id.removesuffix(".desktop")
-    if desktop_id not in BROWSERS:
-        return None
-    base, app, name = BROWSERS[desktop_id]
-    return Source(desktop_id, name, Path(base).expanduser() / "Default", app)
+    return _source(key)
+
+
+def installed_browsers() -> list[Source]:
+    """Browser compatibili con un profilo sul disco, tra cui l'utente può scegliere."""
+    keys = WIN_BROWSERS if sys.platform == "win32" else BROWSERS
+    return [s for s in map(_source, keys) if s and s.profile_dir.is_dir()]
 
 
 # --------------------------------------------------------------------------- AES-128-CBC (solo decifratura)
@@ -226,7 +241,8 @@ class ChromeDecryptor:
         return aes128_cbc_decrypt(key, self.IV, data).decode("utf-8")
 
 
-def _dpapi_unprotect(data: bytes) -> bytes:
+def _dpapi(data: bytes, protect: bool) -> bytes:
+    """Cifra o decifra con la chiave dell'utente Windows (DPAPI)."""
     import ctypes
     from ctypes import wintypes
 
@@ -235,8 +251,9 @@ def _dpapi_unprotect(data: bytes) -> bytes:
 
     buf = ctypes.create_string_buffer(data, len(data))
     inp, out = Blob(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), Blob()
-    if not ctypes.windll.crypt32.CryptUnprotectData(ctypes.byref(inp), None, None, None, None, 0, ctypes.byref(out)):
-        raise PasswordError("DPAPI: decifratura non riuscita")
+    fn = ctypes.windll.crypt32.CryptProtectData if protect else ctypes.windll.crypt32.CryptUnprotectData
+    if not fn(ctypes.byref(inp), None, None, None, None, 0, ctypes.byref(out)):
+        raise PasswordError("DPAPI: operazione non riuscita")
     try:
         return ctypes.string_at(out.pbData, out.cbData)
     finally:
@@ -251,7 +268,7 @@ class WindowsDecryptor:
             enc = base64.b64decode(state["os_crypt"]["encrypted_key"])
             if enc[:5] != b"DPAPI":
                 raise ValueError("formato della chiave sconosciuto")
-            self.key = _dpapi_unprotect(enc[5:])
+            self.key = _dpapi(enc[5:], protect=False)
         except (OSError, KeyError, ValueError, PasswordError) as e:
             self.problem = f"chiave di {source.name} non leggibile ({e})"
 
@@ -260,7 +277,7 @@ class WindowsDecryptor:
         if prefix == b"v20":
             raise PasswordError("cifratura legata all'app (v20) non supportata")
         if prefix not in (b"v10", b"v11"):
-            return _dpapi_unprotect(blob).decode("utf-8")  # vecchi Chrome: DPAPI diretto
+            return _dpapi(blob, protect=False).decode("utf-8")  # vecchi Chrome: DPAPI diretto
         from cryptography.exceptions import InvalidTag
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -356,3 +373,71 @@ def stage_import(profile: Path, logins: list[dict]) -> None:
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(logins, f)
+
+
+# --------------------------------------------------------------------------- archivio locale
+
+STORE_ATTRS = ["application", "stream-launcher", "kind", "logins"]
+
+
+def _store_file() -> Path:
+    from . import core
+
+    return core.CONFIG_DIR / "passwords.bin"
+
+
+def save_store(store: dict) -> None:
+    data = json.dumps(store).encode("utf-8")
+    if sys.platform == "win32":
+        path = _store_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(_dpapi(data, protect=True))
+        return
+    try:
+        res = subprocess.run(["secret-tool", "store", "--label=Stream Launcher: login dei servizi", *STORE_ATTRS],
+                             input=data, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise PasswordError(f"portachiavi non disponibile (serve secret-tool): {e}") from e
+    if res.returncode:
+        raise PasswordError(f"portachiavi: {res.stderr.decode(errors='replace').strip() or 'scrittura non riuscita'}")
+
+
+def load_store() -> dict:
+    """{"browser": nome, "updated": data ISO, "logins": [...]}; vuoto se non c'è."""
+    try:
+        if sys.platform == "win32":
+            data = _dpapi(_store_file().read_bytes(), protect=False)
+        else:
+            data = subprocess.run(["secret-tool", "lookup", *STORE_ATTRS], capture_output=True, timeout=15).stdout
+        return json.loads(data) if data.strip() else {}
+    except (OSError, ValueError, PasswordError, subprocess.TimeoutExpired):
+        return {}
+
+
+def clear_store() -> None:
+    if sys.platform == "win32":
+        _store_file().unlink(missing_ok=True)
+        return
+    try:
+        subprocess.run(["secret-tool", "clear", *STORE_ATTRS], capture_output=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def import_logins(source: Source, domains: list[str]) -> dict:
+    """Legge dal browser i login dei domini indicati e sostituisce l'archivio."""
+    import datetime
+
+    store = {
+        "browser": source.name,
+        "updated": datetime.datetime.now().isoformat(timespec="minutes"),
+        "logins": read_logins(source, domains),
+    }
+    save_store(store)
+    return store
+
+
+def logins_for(domains: list[str], store: dict | None = None) -> list[dict]:
+    store = load_store() if store is None else store
+    return [lg for lg in store.get("logins", [])
+            if _matches(urllib.parse.urlsplit(lg["origin"]).hostname or "", domains)]

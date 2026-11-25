@@ -48,7 +48,7 @@ def cmd_tray(_args) -> None:
 
 def cmd_add(args) -> None:
     svc = core.add_from_template(args.template, name=args.name, new_id=args.id)
-    print(f"Aggiunto «{svc.name}» (id {svc.id}).")
+    print(f"Installato «{svc.name}» (id {svc.id}).")
 
 
 def cmd_duplicate(args) -> None:
@@ -99,29 +99,31 @@ def cmd_proxy_test(args) -> None:
 
 
 def cmd_passwords(args) -> None:
-    from .passwords import PasswordError, default_browser, read_logins
+    from .passwords import PasswordError, clear_store, default_browser, import_logins, installed_browsers, load_store
 
-    svc = core.load_service(args.id)
-    if args.domains is not None:
-        svc.login_domains = core.split_domains(args.domains)
-    if args.action in ("on", "off"):
-        svc.passwords = "auto" if args.action == "on" else "off"
-    if args.action != "check" or args.domains is not None:
-        core.save_service(svc)
-    source = default_browser()
-    state = "attivo" if svc.passwords == "auto" else "disattivato"
-    print(f"{svc.name}: import password {state} — domini {', '.join(core.login_domains(svc))}")
-    if not source:
-        print("Il browser predefinito non è Chrome/Chromium/Brave: niente da importare.")
-        return
-    try:
-        logins = read_logins(source, core.login_domains(svc))
-    except PasswordError as e:
-        raise LauncherError(str(e)) from e
-    # Solo siti e utenti, mai le password.
-    print(f"{len(logins)} login trovati in {source.name}:")
-    for login in sorted(logins, key=lambda x: (x["origin"], x["username"])):
-        print(f"  {login['origin']}  {login['username']}")
+    if args.action == "import":
+        source = default_browser() if not args.browser else next(
+            (b for b in installed_browsers() if b.desktop_id == args.browser), None)
+        if not source:
+            found = ", ".join(b.desktop_id for b in installed_browsers()) or "nessuno"
+            raise LauncherError(f"Browser non trovato. Installati: {found} (scegli con --browser).")
+        try:
+            store = import_logins(source, core.all_login_domains())
+        except PasswordError as e:
+            raise LauncherError(str(e)) from e
+        print(f"Importati {len(store['logins'])} login da {source.name}.")
+    elif args.action == "clear":
+        clear_store()
+        print("Archivio delle password svuotato.")
+    else:
+        store = load_store()
+        if not store:
+            print("Nessuna password importata: stream-launcher passwords import [--browser ...]")
+            return
+        # Solo siti e utenti, mai le password.
+        print(f"{len(store['logins'])} login da {store['browser']} (aggiornati {store['updated']}):")
+        for login in sorted(store["logins"], key=lambda x: (x["origin"], x["username"])):
+            print(f"  {login['origin']}  {login['username']}")
 
 
 def cmd_useragent(args) -> None:
@@ -175,14 +177,13 @@ def cmd_storage(args) -> None:
 
 
 def cmd_init(args) -> None:
-    """Usato da install.sh: runtime, servizi predefiniti, voci di menu."""
-    if args.update_runtime or not core.runtime_installed():
+    """Usato dagli installer: voci di menu. I servizi si scelgono dal catalogo e
+    il runtime Firefox si scarica col primo servizio installato."""
+    if args.update_runtime:
         version = core.install_runtime(args.channel)
         print(f"Runtime Firefox {version} ({core.runtime_channel()}) installato.")
-    else:
+    elif core.runtime_installed():
         core.install_policies()
-    for svc in core.seed_default_services():
-        print(f"Nuovo servizio: {svc.name}")
     core.sync_desktop_entries()
 
 
@@ -203,7 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("tray", help="icona nella tray con i servizi").set_defaults(func=cmd_tray)
 
-    s = sub.add_parser("add", help="aggiunge un servizio da un modello")
+    s = sub.add_parser("add", help="installa un servizio dal catalogo (vedi templates)")
     s.add_argument("template")
     s.add_argument("--name")
     s.add_argument("--id")
@@ -240,10 +241,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.set_defaults(func=cmd_proxy_test)
 
-    s = sub.add_parser("passwords", help="password dal browser predefinito: on, off o check")
-    s.add_argument("id")
-    s.add_argument("action", choices=["on", "off", "check"])
-    s.add_argument("--domains", help="domini dei login, separati da virgola (vuoto = automatici)")
+    s = sub.add_parser("passwords", help="password dei servizi: import da un browser, list o clear")
+    s.add_argument("action", choices=["import", "list", "clear"])
+    s.add_argument("--browser", help="google-chrome, microsoft-edge, chromium o brave-browser (predefinito: quello di sistema)")
     s.set_defaults(func=cmd_passwords)
 
     s = sub.add_parser("useragent", help="user agent: default, windows o stringa personalizzata")
