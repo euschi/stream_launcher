@@ -474,12 +474,13 @@ def edit_login(store: dict, old_key: list[str] | None, site: str, username: str,
     return store
 
 
-def delete_login(store: dict, key: list[str]) -> dict:
+def delete_logins(store: dict, keys: list[list[str]]) -> dict:
+    """Elimina le voci indicate; un nuovo import non le riporterà."""
     removed = store.get("removed", [])
     store = {
         **store,
-        "logins": [lg for lg in store.get("logins", []) if _key(lg) != key],
-        "removed": removed if key in removed else [*removed, key],
+        "logins": [lg for lg in store.get("logins", []) if _key(lg) not in keys],
+        "removed": removed + [k for k in keys if k not in removed],
     }
     save_store(store)
     return store

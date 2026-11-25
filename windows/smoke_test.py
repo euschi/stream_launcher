@@ -140,7 +140,7 @@ st = passwords.edit_login(st, None, "www.primevideo.com", "prime", "manuale")
 st = passwords.import_logins(edge, core.all_login_domains())  # il reimport non annulla le correzioni
 got = {lg["username"]: lg["password"] for lg in passwords.load_store()["logins"]}
 check(got == {"io@example.com": "corretta", "prime": "manuale"}, f"modifica a mano sopravvive al reimport: {sorted(got)}")
-passwords.delete_login(passwords.load_store(), ["https://www.netflix.com", "io@example.com"])
+passwords.delete_logins(passwords.load_store(), [["https://www.netflix.com", "io@example.com"]])
 passwords.import_logins(edge, core.all_login_domains())
 check([lg["username"] for lg in passwords.load_store()["logins"]] == ["prime"], "voce eliminata non ricompare col reimport")
 passwords.clear_store()

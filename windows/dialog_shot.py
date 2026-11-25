@@ -3,11 +3,12 @@
 Verifica visiva del tema applicato all'interfaccia di Firefox (userChrome.css);
 le immagini finiscono tra gli artifact della action.
 """
+import http.server
 import os
 import subprocess
+import threading
 import sys
 import time
-import urllib.parse
 from dataclasses import replace
 from pathlib import Path
 
@@ -27,12 +28,24 @@ SHOT = (
     "$i.Save($env:SHOT_PATH)"
 )
 
+class Page(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = PAGE.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+server = http.server.HTTPServer(("127.0.0.1", 0), Page)
+threading.Thread(target=server.serve_forever, daemon=True).start()
 base = core.load_service("primevideo")
-svc = replace(base, url="data:text/html," + urllib.parse.quote(PAGE), proxy=core.Proxy(), addons=[])
+svc = replace(base, url=f"http://127.0.0.1:{server.server_port}/", proxy=core.Proxy(), addons=[])
 for theme in ("dark", "light"):
     core.set_pref("theme", theme)
     core.launch(svc)
-    time.sleep(12)
+    time.sleep(15)
     path = OUT / f"dialogo-{theme}.png"
     subprocess.run(["powershell", "-NoProfile", "-Command", SHOT], env={**os.environ, "SHOT_PATH": str(path.resolve())}, check=True)
     print(f"{path}: {path.stat().st_size} byte", flush=True)

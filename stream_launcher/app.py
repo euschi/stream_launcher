@@ -652,10 +652,19 @@ class SettingsPage(QScrollArea):
         v.addWidget(self.status)
         v.addWidget(self.logins)
         bottom = QHBoxLayout()
+        self.select_all = QCheckBox("Seleziona tutto")
+        self.select_all.toggled.connect(lambda on: [box.setChecked(on) for box, _ in self.checks])
+        self.delete_btn = _button("Elimina selezionati", self._delete_selected, "danger")
+        bottom.addWidget(self.select_all)
+        bottom.addStretch(1)
+        bottom.addWidget(self.delete_btn)
+        v.addLayout(bottom)
+        bottom = QHBoxLayout()
         bottom.addWidget(_button("+  Aggiungi a mano", lambda: self._edit(None)))
         bottom.addStretch(1)
         bottom.addWidget(_button("Svuota l'archivio", self._clear, "danger"))
         v.addLayout(bottom)
+        self.checks: list[tuple[QCheckBox, list[str]]] = []
         layout.addWidget(g)
         layout.addStretch(1)
         self.setWidget(body)
@@ -741,6 +750,10 @@ class SettingsPage(QScrollArea):
     def _show(self, store: dict) -> None:
         self.store = store
         self.logins.clear()
+        self.checks = []
+        self.select_all.blockSignals(True)
+        self.select_all.setChecked(False)
+        self.select_all.blockSignals(False)
         logins = store.get("logins", [])
         if not logins:
             self.status.setText("Archivio vuoto: scegli un browser e premi Importa.")
@@ -756,15 +769,27 @@ class SettingsPage(QScrollArea):
             row = QWidget()
             h = QHBoxLayout(row)
             h.setContentsMargins(8, 4, 4, 4)
+            box = QCheckBox()
+            box.toggled.connect(self._count_selected)
+            self.checks.append((box, [lg["origin"], lg["username"]]))
+            h.addWidget(box)
             text = QVBoxLayout()
             text.setSpacing(0)
             text.addWidget(_label(lg["username"], "name"))
             text.addWidget(_label(_host(lg["origin"]) + ("  ·  modificato a mano" if lg.get("manual") else ""), "muted"))
             h.addLayout(text, 1)
             h.addWidget(_button("Modifica", lambda x=lg: self._edit(x)))
-            h.addWidget(_button("Elimina", lambda x=lg: self._delete(x), "danger"))
             item.setSizeHint(row.sizeHint())
             self.logins.setItemWidget(item, row)
+        self._count_selected()
+
+    def _selected(self) -> list[list[str]]:
+        return [key for box, key in self.checks if box.isChecked()]
+
+    def _count_selected(self) -> None:
+        n = len(self._selected())
+        self.delete_btn.setText(f"Elimina selezionati ({n})" if n else "Elimina selezionati")
+        self.delete_btn.setEnabled(n > 0)
 
     def _edit(self, login: dict | None) -> None:
         from .passwords import PasswordError, edit_login
@@ -803,15 +828,17 @@ class SettingsPage(QScrollArea):
         run_async(work, lambda store: (self._show(store), self.win.toast("Login salvato")),
                   lambda e: self.win.toast(f"Non salvato: {e}"))
 
-    def _delete(self, login: dict) -> None:
-        from .passwords import delete_login
+    def _delete_selected(self) -> None:
+        from .passwords import delete_logins
 
-        if QMessageBox.question(self, "Eliminare il login?",
-                                f"{login['username']} su {_host(login['origin'])}: non verrà più passato al servizio "
-                                "e un nuovo import non lo riporterà.") != QMessageBox.Yes:
+        keys = self._selected()
+        names = ", ".join(f"{user} ({_host(origin)})" for origin, user in keys[:5]) + (" …" if len(keys) > 5 else "")
+        if QMessageBox.question(self, f"Eliminare {len(keys)} login?",
+                                f"{names}\n\nNon verranno più passati ai servizi e un nuovo import non li riporterà.") \
+                != QMessageBox.Yes:
             return
-        run_async(lambda: delete_login(self.store, [login["origin"], login["username"]]),
-                  lambda store: (self._show(store), self.win.toast("Login eliminato")), self.win.toast)
+        run_async(lambda: delete_logins(self.store, keys),
+                  lambda store: (self._show(store), self.win.toast(f"{len(keys)} login eliminati")), self.win.toast)
 
     def _load(self) -> None:
         from .passwords import load_store
