@@ -609,7 +609,8 @@ class PasswordsPage(QScrollArea):
             "Dal browser scelto vengono letti SOLO i login dei siti dei servizi (quelli installati e "
             "quelli del catalogo) e salvati in un archivio protetto del launcher: il portachiavi di "
             "sistema su Linux, un file cifrato con il tuo utente su Windows. A ogni avvio, ogni "
-            "servizio riceve i login del suo sito. Ripeti l'import quando cambi una password."))
+            "servizio riceve i login del suo sito. Ripeti l'import quando cambi una password: le voci "
+            "che modifichi o elimini qui restano come le hai lasciate."))
         row = QHBoxLayout()
         self.browser = QComboBox()
         default = default_browser()
@@ -629,28 +630,97 @@ class PasswordsPage(QScrollArea):
 
         g = QGroupBox("Nell'archivio")
         v = QVBoxLayout(g)
+        self.store: dict = {}
         self.status = _note("")
         self.logins = QListWidget(objectName="addons")
-        self.logins.setMinimumHeight(220)
+        self.logins.setMinimumHeight(260)
+        self.logins.setSelectionMode(QListWidget.NoSelection)
         v.addWidget(self.status)
         v.addWidget(self.logins)
-        v.addWidget(_button("Svuota l'archivio", self._clear, "danger"), 0, Qt.AlignRight)
+        bottom = QHBoxLayout()
+        bottom.addWidget(_button("+  Aggiungi a mano", lambda: self._edit(None)))
+        bottom.addStretch(1)
+        bottom.addWidget(_button("Svuota l'archivio", self._clear, "danger"))
+        v.addLayout(bottom)
         layout.addWidget(g)
         layout.addStretch(1)
         self.setWidget(body)
         self._load()
 
     def _show(self, store: dict) -> None:
+        self.store = store
         self.logins.clear()
         logins = store.get("logins", [])
-        if not store:
+        if not logins:
             self.status.setText("Archivio vuoto: scegli un browser e premi Importa.")
-        else:
+        elif store.get("updated"):
             when = store["updated"].replace("T", " alle ")
-            self.status.setText(f"{len(logins)} login da {store['browser']}, importati il {when}.")
-        # Mai le password: solo siti e utenti.
+            self.status.setText(f"{len(logins)} login, ultimo import da {store['browser']} il {when}.")
+        else:
+            self.status.setText(f"{len(logins)} login inseriti a mano.")
+        # Nell'elenco solo siti e utenti: la password si vede solo aprendo la voce.
         for lg in sorted(logins, key=lambda x: (x["origin"], x["username"])):
-            self.logins.addItem(f"{_host(lg['origin'])}  ·  {lg['username']}")
+            item = QListWidgetItem()
+            self.logins.addItem(item)
+            row = QWidget()
+            h = QHBoxLayout(row)
+            h.setContentsMargins(8, 4, 4, 4)
+            text = QVBoxLayout()
+            text.setSpacing(0)
+            text.addWidget(_label(lg["username"], "name"))
+            text.addWidget(_label(_host(lg["origin"]) + ("  ·  modificato a mano" if lg.get("manual") else ""), "muted"))
+            h.addLayout(text, 1)
+            h.addWidget(_button("Modifica", lambda x=lg: self._edit(x)))
+            h.addWidget(_button("Elimina", lambda x=lg: self._delete(x), "danger"))
+            item.setSizeHint(row.sizeHint())
+            self.logins.setItemWidget(item, row)
+
+    def _edit(self, login: dict | None) -> None:
+        from .passwords import PasswordError, edit_login
+
+        login = login or {}
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Modifica login" if login else "Nuovo login")
+        form = QFormLayout(dialog)
+        site = QLineEdit(_host(login.get("origin", "")), placeholderText="es. www.netflix.com")
+        user = QLineEdit(login.get("username", ""))
+        pw = QLineEdit(login.get("password", ""), echoMode=QLineEdit.Password)
+        show = QCheckBox("Mostra password")
+        show.toggled.connect(lambda on: pw.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Save).setText("Salva")
+        buttons.button(QDialogButtonBox.Cancel).setText("Annulla")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow("Sito", site)
+        form.addRow("Utente", user)
+        form.addRow("Password", pw)
+        form.addRow("", show)
+        form.addRow(buttons)
+        dialog.resize(440, dialog.sizeHint().height())
+        if dialog.exec() != QDialog.Accepted:
+            return
+        old_key = [login["origin"], login["username"]] if login else None
+        values = (site.text().strip(), user.text().strip(), pw.text())
+
+        def work():
+            try:
+                return edit_login(self.store, old_key, *values)
+            except PasswordError as e:
+                raise LauncherError(str(e)) from e
+
+        run_async(work, lambda store: (self._show(store), self.win.toast("Login salvato")),
+                  lambda e: self.win.toast(f"Non salvato: {e}"))
+
+    def _delete(self, login: dict) -> None:
+        from .passwords import delete_login
+
+        if QMessageBox.question(self, "Eliminare il login?",
+                                f"{login['username']} su {_host(login['origin'])}: non verrà più passato al servizio "
+                                "e un nuovo import non lo riporterà.") != QMessageBox.Yes:
+            return
+        run_async(lambda: delete_login(self.store, [login["origin"], login["username"]]),
+                  lambda store: (self._show(store), self.win.toast("Login eliminato")), self.win.toast)
 
     def _load(self) -> None:
         from .passwords import load_store
@@ -674,7 +744,7 @@ class PasswordsPage(QScrollArea):
         def done(store):
             self.import_btn.setEnabled(True)
             self._show(store)
-            self.win.toast(f"Importati {len(store['logins'])} login da {source.name}")
+            self.win.toast(f"Archivio aggiornato da {source.name}: {len(store['logins'])} login")
 
         def failed(err):
             self.import_btn.setEnabled(True)
