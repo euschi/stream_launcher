@@ -73,6 +73,8 @@ mkdir -p "$DATA_DIR" "$(dirname "$BIN_LINK")" "$(dirname "$AUTOSTART")"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR"
 cp -r "$SRC_DIR/stream_launcher" "$SRC_DIR/config" "$SRC_DIR/templates" "$SRC_DIR/bin" "$APP_DIR/"
+version="$(git -C "$SRC_DIR" describe --tags 2>/dev/null | sed 's/^v//')"
+echo "VERSION = \"${version:-sviluppo}\"" > "$APP_DIR/stream_launcher/_version.py"
 find "$APP_DIR" -name __pycache__ -prune -exec rm -rf {} +
 chmod 755 "$APP_DIR/bin/stream-launcher"
 ln -sfn "$APP_DIR/bin/stream-launcher" "$BIN_LINK"

@@ -615,7 +615,10 @@ class SettingsPage(QScrollArea):
         layout.setContentsMargins(22, 14, 22, 18)
         layout.setSpacing(10)
         layout.addWidget(_button("←  Tutti i servizi", win.show_list, "ghost"), 0, Qt.AlignLeft)
-        header, _ = _header("Impostazioni", "Aspetto, comportamento, motore Firefox e password", app_icon())
+        from . import __version__
+
+        header, _ = _header("Impostazioni", f"Stream Launcher {__version__} · aspetto, comportamento, motore Firefox e password",
+                            app_icon())
         layout.addLayout(header)
         for group in (self._look_group(), self._behaviour_group(), self._runtime_group()):
             layout.addWidget(group)

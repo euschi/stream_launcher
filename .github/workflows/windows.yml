@@ -19,6 +19,8 @@ jobs:
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -39,6 +41,8 @@ jobs:
       - name: Eseguibile (PyInstaller)
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { (git describe --tags --always).TrimStart("v") }
+          "VERSION = `"$version`"" | Out-File -Encoding utf8 stream_launcher/_version.py
           python windows/make_icon.py
           pyinstaller --noconfirm --windowed --name StreamLauncher --icon windows/icon.ico --paths . `
             --hidden-import PySide6.QtSvg --add-data "config;config" --add-data "templates;templates" `
