@@ -424,14 +424,63 @@ def clear_store() -> None:
         pass
 
 
+def _key(login: dict) -> list[str]:
+    return [login["origin"], login["username"]]
+
+
 def import_logins(source: Source, domains: list[str]) -> dict:
-    """Legge dal browser i login dei domini indicati e sostituisce l'archivio."""
+    """Aggiorna l'archivio con i login del browser per i domini indicati.
+
+    Le voci modificate a mano restano come le hai lasciate e quelle eliminate
+    a mano non ricompaiono: l'import non annulla le correzioni.
+    """
     import datetime
 
+    old = load_store()
+    removed = old.get("removed", [])
+    merged = {tuple(_key(lg)): lg for lg in read_logins(source, domains) if _key(lg) not in removed}
+    merged.update({tuple(_key(lg)): lg for lg in old.get("logins", []) if lg.get("manual")})
     store = {
         "browser": source.name,
         "updated": datetime.datetime.now().isoformat(timespec="minutes"),
-        "logins": read_logins(source, domains),
+        "logins": list(merged.values()),
+        "removed": removed,
+    }
+    save_store(store)
+    return store
+
+
+def edit_login(store: dict, old_key: list[str] | None, site: str, username: str, password: str) -> dict:
+    """Sostituisce (o aggiunge, con old_key None) una voce; ritorna l'archivio salvato."""
+    origin = _origin(site if "://" in site else f"https://{site.strip()}")
+    if not origin or not username or not password:
+        raise PasswordError("servono sito, utente e password")
+    logins = [lg for lg in store.get("logins", []) if _key(lg) != old_key]
+    previous = next((lg for lg in store.get("logins", []) if _key(lg) == old_key), {})
+    new = {**previous, "origin": origin, "username": username, "password": password, "manual": True}
+    if previous.get("origin") != origin:
+        new["formActionOrigin"] = origin
+    new.setdefault("usernameField", "")
+    new.setdefault("passwordField", "")
+    if any(_key(lg) == _key(new) for lg in logins):
+        raise PasswordError("esiste già una voce con questo sito e utente")
+    removed = store.get("removed", [])
+    if old_key and old_key != _key(new) and old_key not in removed:
+        removed = [*removed, old_key]  # la versione del browser non deve ricomparire
+    store = {**store, "logins": [*logins, new], "removed": removed}
+    store.setdefault("browser", "inserimento manuale")
+    store.setdefault("updated", "")
+    save_store(store)
+    return store
+
+
+def delete_logins(store: dict, keys: list[list[str]]) -> dict:
+    """Elimina le voci indicate; un nuovo import non le riporterà."""
+    removed = store.get("removed", [])
+    store = {
+        **store,
+        "logins": [lg for lg in store.get("logins", []) if _key(lg) not in keys],
+        "removed": removed + [k for k in keys if k not in removed],
     }
     save_store(store)
     return store

@@ -81,17 +81,7 @@ else
   "$BIN_LINK" init
 fi
 
-cat > "$AUTOSTART" <<EOF
-[Desktop Entry]
-Type=Application
-Name=Stream Launcher (tray)
-Comment=Icona nella tray con i servizi di streaming
-Exec=$APP_DIR/bin/stream-launcher tray
-Icon=stream-launcher
-Terminal=false
-NoDisplay=true
-X-GNOME-Autostart-enabled=true
-EOF
+# L'avvio automatico (autostart) lo gestisce init, secondo le impostazioni dell'app.
 
 # Avvia subito la tray, staccata dal terminale.
 setsid -f "$APP_DIR/bin/stream-launcher" tray >/dev/null 2>&1 < /dev/null || true
