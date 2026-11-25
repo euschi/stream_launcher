@@ -32,6 +32,18 @@ user_pref("full-screen-api.warning.timeout", 0);
 user_pref("full-screen-api.transition-duration.enter", "0 0");
 user_pref("full-screen-api.transition-duration.leave", "0 0");
 
+// --- Permessi dei siti: rifiutati in automatico, senza finestrelle ---
+// Ai servizi di streaming non servono; alcuni (es. Paramount+) chiedono la posizione
+// di continuo e la richiesta di Firefox lampeggia. La posizione resta privata anche
+// dietro un proxy: il paese lo decide l'IP, non il Wi-Fi.
+user_pref("permissions.default.geo", 2);
+user_pref("permissions.default.desktop-notification", 2);
+user_pref("permissions.default.camera", 2);
+user_pref("permissions.default.microphone", 2);
+user_pref("permissions.default.xr", 2);
+user_pref("geo.provider.network.url", "");
+user_pref("dom.push.enabled", false);
+
 // --- Niente richieste da browser ---
 user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("browser.aboutwelcome.enabled", false);
