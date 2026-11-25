@@ -70,7 +70,10 @@ cifratura legata all'app (prefisso `v20`) vengono saltati.
 - **Menu applicazioni**: ogni servizio ha la sua voce; tasto destro → *Impostazioni*.
 - **Stream Launcher** (menu) apre la finestra: installa dal catalogo, avvia,
   modifica nome, indirizzo, user agent, proxy e addon, duplica o elimina.
-  **Password** importa i login da un browser (vedi sotto).
+  **Impostazioni**: tema (scuro, chiaro o come il sistema, applicato anche ai
+  dialoghi di Firefox: prompt, login, salvataggio password, tendine), avvio con
+  il sistema, cosa fare chiudendo la finestra o avviando un servizio, canale e
+  aggiornamento del motore Firefox, password (vedi sotto).
 
 Da terminale:
 
@@ -148,8 +151,9 @@ all'installazione dai siti dei servizi.
   amazon.com) e salvati in un archivio del launcher, nel portachiavi GNOME su
   Linux o in un file cifrato con DPAPI su Windows. A ogni avvio, ogni servizio
   riceve i login del suo sito: Firefox li legge da un file con permessi 600 che
-  viene cancellato appena importato. Ripeti l'import quando cambi una password;
-  `passwords list` mostra siti e utenti, mai le password.
+  viene cancellato appena importato. Ogni voce dell'archivio si può modificare,
+  eliminare o aggiungere a mano; ripetere l'import aggiorna dal browser senza
+  annullare queste correzioni. `passwords list` mostra siti e utenti, mai le password.
 - **"L'applicazione non risponde"**: succede se runtime e profili stanno su un
   disco lento o saturo (HDD, trim in corso). Spostali su SSD con `storage move`.
 - **Addon Chrome**: vengono convertiti al volo (id Gecko, service worker →

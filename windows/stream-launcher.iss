@@ -32,10 +32,6 @@ Name: "it"; MessagesFile: "compiler:Languages\Italian.isl"
 [Files]
 Source: "..\dist\StreamLauncher\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-[Icons]
-; Le voci del menu Start (impostazioni e un servizio ciascuna) le crea l'app stessa.
-Name: "{userstartup}\Stream Launcher"; Filename: "{app}\StreamLauncher.exe"; Parameters: "tray"
-
 [Run]
 Filename: "{app}\StreamLauncher.exe"; Parameters: "init"; StatusMsg: "Preparo Stream Launcher…"; Flags: runhidden waituntilterminated
 Filename: "{app}\StreamLauncher.exe"; Parameters: "settings"; Description: "Apri Stream Launcher"; Flags: nowait postinstall skipifsilent
@@ -46,4 +42,5 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM StreamLauncher.exe"; Flags: 
 [UninstallDelete]
 ; Come su Linux: via voci di menu, runtime e profili; la configurazione (%APPDATA%) resta.
 Type: filesandordirs; Name: "{userprograms}\Stream Launcher"
+Type: files; Name: "{userstartup}\Stream Launcher.lnk"
 Type: filesandordirs; Name: "{localappdata}\stream-launcher"

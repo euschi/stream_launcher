@@ -1,0 +1,110 @@
+/* Tema di Stream Launcher per l'interfaccia di Firefox: dialoghi con campi da
+   compilare (prompt, login, autenticazione HTTP), pannelli (salvataggio password,
+   permessi), menu e tendine. Le variabili --sl-* le genera il launcher a ogni avvio
+   con la palette del tema scelto nelle impostazioni. */
+
+:root {
+  /* Token del design system di Firefox */
+  --background-color-canvas: var(--sl-bg) !important;
+  --background-color-box: var(--sl-surface) !important;
+  --background-color-box-info: var(--sl-surface-hi) !important;
+  --text-color: var(--sl-text) !important;
+  --text-color-deemphasized: var(--sl-muted) !important;
+  --border-color: var(--sl-border) !important;
+  --border-color-interactive: var(--sl-hover-border) !important;
+  --border-color-deemphasized: var(--sl-border) !important;
+  --color-accent-primary: var(--sl-accent) !important;
+  --color-accent-primary-hover: #f472b6 !important;
+  --color-accent-primary-active: #db2777 !important;
+  --focus-outline-color: var(--sl-accent) !important;
+  --link-color: var(--sl-accent) !important;
+  --button-background-color: var(--sl-surface-hi) !important;
+  --button-background-color-hover: var(--sl-hover) !important;
+  --button-background-color-active: var(--sl-hover) !important;
+  --button-text-color: var(--sl-text) !important;
+  --button-background-color-primary: var(--sl-accent) !important;
+  --button-background-color-primary-hover: #f472b6 !important;
+  --button-text-color-primary: #fff !important;
+  --border-radius-small: 6px !important;
+  --border-radius-medium: 9px !important;
+  /* Pannelli e menu */
+  --arrowpanel-background: var(--sl-surface) !important;
+  --arrowpanel-color: var(--sl-text) !important;
+  --arrowpanel-border-color: var(--sl-border) !important;
+  --arrowpanel-border-radius: 14px !important;
+  --panel-background: var(--sl-surface) !important;
+  --panel-color: var(--sl-text) !important;
+  --panel-border-color: var(--sl-border) !important;
+  --panel-border-radius: 12px !important;
+  --panel-separator-color: var(--sl-border) !important;
+  --menu-background-color: var(--sl-surface) !important;
+  --menu-color: var(--sl-text) !important;
+  --menu-border-color: var(--sl-border) !important;
+  --menuitem-hover-background-color: var(--sl-surface-hi) !important;
+  --input-bgcolor: var(--sl-bg) !important;
+  --input-color: var(--sl-text) !important;
+  --input-border-color: var(--sl-border) !important;
+}
+
+/* Dialoghi (anche quelli aperti da una pagina: alert, confirm, prompt) */
+dialog, .dialogBox, #commonDialog, .dialogOverlay > .dialogBox {
+  background-color: var(--sl-surface) !important;
+  color: var(--sl-text) !important;
+}
+.dialogBox {
+  border: 1px solid var(--sl-border) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45) !important;
+  overflow: hidden !important;
+}
+.dialogOverlay[topmost="true"] { background-color: rgba(10, 8, 14, 0.55) !important; }
+#infoTitle, .dialogTitle, .popup-notification-description { color: var(--sl-text) !important; font-weight: 600 !important; }
+
+/* Campi da compilare */
+dialog input, #commonDialog input, panel input, .popup-notification-panel input,
+dialog html|input, menulist, search-textbox {
+  appearance: none !important;
+  background-color: var(--sl-bg) !important;
+  color: var(--sl-text) !important;
+  border: 1px solid var(--sl-border) !important;
+  border-radius: 8px !important;
+  padding: 6px 9px !important;
+}
+dialog input:focus, #commonDialog input:focus, panel input:focus, .popup-notification-panel input:focus {
+  border-color: var(--sl-accent) !important;
+  outline: 1px solid var(--sl-accent) !important;
+}
+checkbox .checkbox-check, input[type="checkbox"] {
+  border-radius: 5px !important;
+  border-color: var(--sl-hover-border) !important;
+}
+
+/* Pulsanti: quello principale con il gradiente dell'app */
+dialog button, panel button, .popup-notification-panel button, .panel-footer button {
+  appearance: none !important;
+  background: var(--sl-surface-hi) !important;
+  color: var(--sl-text) !important;
+  border: 1px solid var(--sl-border) !important;
+  border-radius: 9px !important;
+  padding: 6px 14px !important;
+  font-weight: 600 !important;
+}
+dialog button:hover, panel button:hover, .popup-notification-panel button:hover {
+  background: var(--sl-hover) !important;
+}
+dialog button[default="true"], button[dlgtype="accept"], .popup-notification-primary-button, button.primary {
+  background: linear-gradient(90deg, #ff9f1c, #ec4899) !important;
+  color: #fff !important;
+  border: none !important;
+}
+
+/* Menu, tendine (<select> delle pagine) e suggerimenti dei login */
+menupopup, #ContentSelectDropdown > menupopup, #PopupAutoComplete {
+  --panel-background: var(--sl-surface) !important;
+  --panel-color: var(--sl-text) !important;
+  --panel-border-color: var(--sl-border) !important;
+}
+menupopup menuitem[_moz-menuactive="true"], #PopupAutoComplete richlistitem[selected] {
+  background-color: var(--sl-surface-hi) !important;
+  color: var(--sl-text) !important;
+}

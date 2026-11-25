@@ -95,7 +95,22 @@ MANAGED_PREFS = (
     "general.appversion.override",
     "network.proxy.",
     "media.peerconnection.ice.proxy_only",
+    "browser.theme.toolbar-theme",
 )
+
+
+# Palette dei temi: le usano sia la finestra (Qt) sia l'interfaccia di Firefox (userChrome.css).
+_COMMON = {"accent": "#ec4899", "gradient": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ff9f1c, stop:1 #ec4899)"}
+THEMES = {
+    "dark": {**_COMMON, "bg": "#141219", "surface": "#1e1b25", "surface_hi": "#27232f", "border": "#322d3c",
+             "text": "#efeaf5", "muted": "#9d95ab", "danger": "#f87171", "hover": "#312c3b", "hover_border": "#4a4257",
+             "disabled": "#5d5669", "disabled_border": "#2b2733", "danger_border": "#5b2a33", "danger_hover": "#3a1d24",
+             "placeholder": "#6f6880"},
+    "light": {**_COMMON, "bg": "#f6f3f9", "surface": "#ffffff", "surface_hi": "#efe9f5", "border": "#ddd5e6",
+              "text": "#1f1b26", "muted": "#6b6478", "danger": "#dc2626", "hover": "#e6def0", "hover_border": "#c9bdd6",
+              "disabled": "#b3abc0", "disabled_border": "#e8e2ee", "danger_border": "#f3c4c4", "danger_hover": "#fdecec",
+              "placeholder": "#9a93a6"},
+}
 
 
 class LauncherError(Exception):
@@ -404,6 +419,54 @@ def _write_settings(cp: configparser.ConfigParser) -> None:
         cp.write(f)
 
 
+def get_pref(key: str, default: str = "") -> str:
+    """Preferenze dell'interfaccia (sezione [ui] di settings.ini)."""
+    return _settings().get("ui", key, fallback=default)
+
+
+def set_pref(key: str, value: str) -> None:
+    cp = _settings()
+    if not cp.has_section("ui"):
+        cp["ui"] = {}
+    cp["ui"][key] = value
+    _write_settings(cp)
+
+
+def autostart_path() -> Path:
+    if IS_WIN:
+        return _env_dir("APPDATA", "AppData/Roaming") / "Microsoft/Windows/Start Menu/Programs/Startup/Stream Launcher.lnk"
+    return _env_dir("XDG_CONFIG_HOME", ".config") / "autostart" / f"{APP}-tray.desktop"
+
+
+def set_autostart(enabled: bool) -> None:
+    """Icona nella tray all'accesso: voce di avvio automatico del sistema."""
+    set_pref("autostart", "on" if enabled else "off")
+    path = autostart_path()
+    if not enabled:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    target, *base_args = self_command()
+    if IS_WIN:
+        from .winshell import create_shortcut
+
+        args = f"{subprocess.list2cmdline(base_args)} tray".strip()
+        create_shortcut(str(path), target, args, str(Path(target).parent), "Stream Launcher (tray)", "", "")
+        return
+    path.write_text(
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Stream Launcher (tray)\n"
+        "Comment=Icona nella tray con i servizi di streaming\n"
+        f"Exec={CLI_PATH} tray\n"
+        f"Icon={install_theme_icon()}\n"
+        "Terminal=false\n"
+        "NoDisplay=true\n"
+        "X-GNOME-Autostart-enabled=true\n",
+        encoding="utf-8",
+    )
+
+
 def _set_runtime_channel(channel: str) -> None:
     cp = _settings()
     cp["runtime"]["channel"] = channel
@@ -645,11 +708,28 @@ def prepare_profile(svc: Service, log=print) -> None:
         *_user_agent_prefs(svc),
         *_proxy_prefs(svc.proxy),
     ]
+    theme_vars, toolbar_theme = _firefox_theme(get_pref("theme", "auto"))
+    generated.append(_pref("browser.theme.toolbar-theme", toolbar_theme))
     base = (ASSETS_DIR / "user.js").read_text(encoding="utf-8")
     (profile / "user.js").write_text(base + "\n".join(generated) + "\n", encoding="utf-8")
-    shutil.copyfile(ASSETS_DIR / "chrome" / "userChrome.css", profile / "chrome" / "userChrome.css")
+    chrome = ASSETS_DIR / "chrome"
+    css = "\n".join(f.read_text(encoding="utf-8") for f in (chrome / "userChrome.css", chrome / "theme.css"))
+    (profile / "chrome" / "userChrome.css").write_text(css + "\n" + theme_vars, encoding="utf-8")
     sync_addons(svc, log)
     sync_passwords(svc, log)
+
+
+def _firefox_theme(choice: str) -> tuple[str, int]:
+    """Variabili CSS --sl-* per theme.css e valore di browser.theme.toolbar-theme
+    (0 scuro, 1 chiaro, 2 come il sistema)."""
+
+    def variables(colors: dict) -> str:
+        lines = "".join(f"  --sl-{k.replace('_', '-')}: {v};\n" for k, v in colors.items() if k != "gradient")
+        return ":root {\n" + lines + "}\n"
+
+    if choice in THEMES:
+        return variables(THEMES[choice]), 0 if choice == "dark" else 1
+    return variables(THEMES["light"]) + "@media (prefers-color-scheme: dark) {\n" + variables(THEMES["dark"]) + "}\n", 2
 
 
 def login_domains(svc: Service) -> list[str]:

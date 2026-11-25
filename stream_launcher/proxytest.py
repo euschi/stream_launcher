@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import socket
 import ssl
 import time
@@ -162,6 +163,33 @@ def open_tunnel(proxy: Proxy, host: str, port: int, timeout: float = TIMEOUT) ->
     return sock
 
 
+def _read_response(sock: ssl.SSLSocket) -> bytes:
+    """Legge la risposta fino alla fine del corpo (Content-Length), alla chiusura o al limite.
+
+    Non basta aspettare la chiusura: alcuni proxy tengono aperto il tunnel anche dopo
+    che il sito ha finito di rispondere, e la prova scadrebbe a vuoto.
+    """
+    data = b""
+    while len(data) < 262144:
+        head, sep, body = data.partition(b"\r\n\r\n")
+        if sep:
+            match = re.search(rb"(?im)^content-length:\s*(\d+)", head)
+            if match and len(body) >= int(match.group(1)):
+                break
+        try:
+            chunk = sock.recv(16384)
+        except ssl.SSLError:
+            break  # alcuni server chiudono senza close_notify
+        except socket.timeout:
+            if sep:
+                break  # intestazioni già arrivate: è il proxy che non chiude
+            raise
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+
 def https_get(proxy: Proxy, host: str, path: str, timeout: float = TIMEOUT) -> tuple[int, bytes]:
     """GET HTTPS minimale (HTTP/1.0: niente chunked) attraverso il proxy."""
     raw = open_tunnel(proxy, host, 443, timeout)
@@ -176,15 +204,7 @@ def https_get(proxy: Proxy, host: str, path: str, timeout: float = TIMEOUT) -> t
             "Accept: application/json, text/html;q=0.9\r\nConnection: close\r\n\r\n"
         )
         tls.sendall(request.encode())
-        data = b""
-        while len(data) < 262144:
-            try:
-                chunk = tls.recv(16384)
-            except ssl.SSLError:
-                break  # alcuni server chiudono senza close_notify
-            if not chunk:
-                break
-            data += chunk
+        data = _read_response(tls)
     head, _, body = data.partition(b"\r\n\r\n")
     try:
         status = int(head.split(b" ", 2)[1])
