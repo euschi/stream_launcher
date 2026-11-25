@@ -754,6 +754,25 @@ def all_login_domains() -> list[str]:
     return sorted(domains)
 
 
+OTHER_SITES = "Altri siti"
+
+
+def login_groups(logins: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Login raggruppati per servizio: i servizi installati con lo stesso dominio finiscono
+    nello stesso gruppo (es. «Paramount+ Italia · Paramount+ USA»), poi il catalogo,
+    infine «Altri siti» per le voci aggiunte a mano."""
+    from .passwords import matches_domain
+
+    services = [(s.name, login_domains(s)) for s in list_services()]
+    catalog = [(t.name, login_domains(t)) for t in list_templates()]
+    groups: dict[str, list[dict]] = {}
+    for login in logins:
+        host = urllib.parse.urlsplit(login["origin"]).hostname or ""
+        names = [n for n, d in services if matches_domain(host, d)] or [n for n, d in catalog if matches_domain(host, d)][:1]
+        groups.setdefault(" · ".join(dict.fromkeys(names)) or OTHER_SITES, []).append(login)
+    return sorted(groups.items(), key=lambda g: (g[0] == OTHER_SITES, g[0].lower()))
+
+
 def sync_passwords(svc: Service, log=print) -> int:
     """Passa al profilo i login del servizio presi dall'archivio del launcher; ritorna quanti."""
     from .passwords import logins_for, stage_import
