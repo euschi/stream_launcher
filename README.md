@@ -66,8 +66,12 @@ finestre di un servizio compaiono nella barra delle applicazioni con il suo nome
 e la sua icona, raggruppate a parte, e si possono aggiungere alla barra. La disinstallazione toglie app, runtime e profili;
 la configurazione in `%APPDATA%\stream-launcher` resta.
 
-`StreamLauncher.exe` accetta gli stessi comandi della versione Linux, ad esempio
-`StreamLauncher.exe list` da un prompt. I login che il browser ha cifrato con la
+Da un prompt (cmd o PowerShell) si usa `stream-launcher-cli`, che accetta gli
+stessi comandi della versione Linux, ad esempio `stream-launcher-cli list` o il
+menu interattivo `stream-launcher-cli menu`. L'installer mette la sua cartella nel
+PATH dell'utente (vale per i prompt aperti dopo l'installazione) e la toglie alla
+disinstallazione. `StreamLauncher.exe` è la versione con finestra: il prompt non
+aspetta che finisca, quindi non va bene per il menu. I login che il browser ha cifrato con la
 cifratura legata all'app (prefisso `v20`) vengono saltati.
 
 ## Uso
@@ -83,9 +87,28 @@ cifratura legata all'app (prefisso `v20`) vengono saltati.
   il sistema, cosa fare chiudendo la finestra o avviando un servizio, canale e
   aggiornamento del motore Firefox, password (vedi sotto).
 
+**Menu nel terminale**: `stream-launcher menu` (o `stream-launcher m`; su Windows
+`stream-launcher-cli menu`) elenca i servizi con un numero. Scrivi il numero o
+parte del nome (es. `2` o `para`) e il servizio parte in background; `a` installa
+dal catalogo, `q` esce.
+
+```text
+Stream Launcher 1.03.00
+
+  1  Netflix
+  2  Paramount+
+  3  Prime Video
+
+  a  installa dal catalogo
+  q  esci
+
+Avvia (numero o nome):
+```
+
 Da terminale:
 
 ```bash
+stream-launcher menu
 stream-launcher list
 stream-launcher run paramountplus
 stream-launcher duplicate paramountplus --name "Paramount+ USA" [--copy-profile]

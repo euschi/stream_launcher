@@ -30,6 +30,12 @@ def cmd_run(args) -> None:
     core.launch(core.load_service(args.id))
 
 
+def cmd_menu(_args) -> None:
+    from . import menu
+
+    menu.run()
+
+
 def _gui(mode: str, service_id: str | None = None) -> None:
     try:
         from . import app  # Qt si carica solo quando serve
@@ -201,6 +207,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("run", help="avvia un servizio")
     s.add_argument("id")
     s.set_defaults(func=cmd_run)
+
+    sub.add_parser("menu", aliases=["m"], help="menu interattivo nel terminale: scegli e avvia un servizio").set_defaults(func=cmd_menu)
 
     s = sub.add_parser("settings", help="apre la finestra delle impostazioni")
     s.add_argument("id", nargs="?")
