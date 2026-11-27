@@ -137,6 +137,8 @@ def cmd_useragent(args) -> None:
     svc.user_agent = "" if args.value == "default" else args.value
     core.save_service(svc)
     print(f"{svc.name}: user agent «{svc.user_agent or 'predefinito'}».")
+    if svc.user_agent == "windows" and not core.IS_WIN:
+        print(core.UA_WINDOWS_WARNING)
 
 
 def cmd_addon(args) -> None:

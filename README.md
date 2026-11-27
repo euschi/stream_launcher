@@ -33,7 +33,9 @@ servizio installato scarica anche il motore Firefox. Da terminale:
 `stream-launcher templates` e `stream-launcher add <modello>`.
 
 Se un servizio dice che il browser o il sistema non è supportato, imposta lo
-user agent «Firefox su Windows».
+user agent «Firefox su Windows». Su Linux però alcuni servizi, al contrario,
+bloccano i video proprio con quello user agent (Netflix dà l'errore F7111-1331):
+se hai problemi, basta tornare all'impostazione predefinita.
 
 ## Installazione
 

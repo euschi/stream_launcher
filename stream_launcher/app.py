@@ -74,6 +74,7 @@ QLabel[role="section"] {{ font-size: 16px; font-weight: 700; }}
 QFrame#catalog {{ background: transparent; border: 1px dashed {c['border']}; border-radius: 14px; }}
 QFrame#catalog:hover {{ background: {c['surface']}; }}
 QLabel[role="muted"] {{ color: {c['muted']}; }}
+QLabel[role="warning"] {{ color: {c['danger']}; }}
 QFrame#row {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 14px; }}
 QFrame#row:hover {{ background: {c['surface_hi']}; border-color: {c['hover_border']}; }}
 QListWidget {{ background: transparent; border: none; outline: none; }}
@@ -420,6 +421,8 @@ class Editor(QScrollArea):
         form.addRow("User agent", self.ua)
         form.addRow("", self.ua_custom)
         form.addRow(_note("Alcuni servizi danno più qualità se il sistema dichiarato è Windows."))
+        self.ua_warning = _label(core.UA_WINDOWS_WARNING, "warning", wrap=True)
+        form.addRow(self.ua_warning)
         return g
 
     def _proxy_group(self) -> QGroupBox:
@@ -467,6 +470,7 @@ class Editor(QScrollArea):
 
     def _sync_sensitivity(self) -> None:
         self.ua_custom.setVisible(self.ua.currentData() == "custom")
+        self.ua_warning.setVisible(not core.IS_WIN and self.ua.currentData() == "windows")
         active = self.proxy_type.currentData() != "none"
         for w in (self.proxy_host, self.proxy_port, self.proxy_user, self.proxy_pass):
             w.setEnabled(active)

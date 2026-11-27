@@ -643,6 +643,15 @@ def _pref(name: str, value: object) -> str:
     return f"user_pref({json.dumps(name)}, {json.dumps(value)});"
 
 
+# Su Linux il modulo DRM (Widevine) resta quello di Linux: alcuni servizi notano che non
+# coincide con il sistema dichiarato e bloccano i video (Netflix: errore F7111-1331).
+UA_WINDOWS_WARNING = (
+    "Attenzione: su Linux alcuni servizi bloccano i video se il sistema dichiarato è "
+    "Windows (Netflix, ad esempio, dà l'errore F7111-1331). Se hai problemi, basta "
+    "tornare all'impostazione predefinita (Linux)."
+)
+
+
 def _user_agent_prefs(svc: Service) -> list[str]:
     if not svc.user_agent:
         return []
