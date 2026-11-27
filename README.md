@@ -33,7 +33,9 @@ servizio installato scarica anche il motore Firefox. Da terminale:
 `stream-launcher templates` e `stream-launcher add <modello>`.
 
 Se un servizio dice che il browser o il sistema non è supportato, imposta lo
-user agent «Firefox su Windows».
+user agent «Firefox su Windows». Su Linux però alcuni servizi, al contrario,
+bloccano i video proprio con quello user agent (Netflix dà l'errore F7111-1331):
+se hai problemi, basta tornare all'impostazione predefinita.
 
 ## Installazione
 
@@ -71,8 +73,9 @@ stessi comandi della versione Linux, ad esempio `stream-launcher-cli list` o il
 menu interattivo `stream-launcher-cli menu`. L'installer mette la sua cartella nel
 PATH dell'utente (vale per i prompt aperti dopo l'installazione) e la toglie alla
 disinstallazione. `StreamLauncher.exe` è la versione con finestra: il prompt non
-aspetta che finisca, quindi non va bene per il menu. I login che il browser ha cifrato con la
-cifratura legata all'app (prefisso `v20`) vengono saltati.
+aspetta che finisca, quindi non va bene per il menu. I login cifrati con lo schema
+«app-bound» (prefisso `v20`, Chrome 127+) vengono letti chiedendo la chiave al
+servizio di elevazione del browser: conviene chiudere il browser prima di importare.
 
 ## Uso
 
