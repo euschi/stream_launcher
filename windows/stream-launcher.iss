@@ -25,6 +25,8 @@ WizardStyle=modern
 CloseApplications=force
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; La cartella dell'app va nel PATH dell'utente: stream-launcher-cli da qualunque prompt.
+ChangesEnvironment=yes
 
 [Languages]
 Name: "it"; MessagesFile: "compiler:Languages\Italian.isl"
@@ -36,11 +38,44 @@ Source: "..\dist\StreamLauncher\*"; DestDir: "{app}"; Flags: ignoreversion recur
 Filename: "{app}\StreamLauncher.exe"; Parameters: "init"; StatusMsg: "Preparo Stream Launcher…"; Flags: runhidden waituntilterminated
 Filename: "{app}\StreamLauncher.exe"; Parameters: "settings"; Description: "Apri Stream Launcher"; Flags: nowait postinstall skipifsilent
 
+[Registry]
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
+
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM StreamLauncher.exe"; Flags: runhidden; RunOnceId: "StopTray"
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM stream-launcher-cli.exe"; Flags: runhidden; RunOnceId: "StopCli"
 
 [UninstallDelete]
 ; Come su Linux: via voci di menu, runtime e profili; la configurazione (%APPDATA%) resta.
 Type: filesandordirs; Name: "{userprograms}\Stream Launcher"
 Type: files; Name: "{userstartup}\Stream Launcher.lnk"
 Type: filesandordirs; Name: "{localappdata}\stream-launcher"
+
+[Code]
+function UserPath(): string;
+begin
+  if not RegQueryStringValue(HKCU, 'Environment', 'Path', Result) then
+    Result := '';
+end;
+
+function NeedsAddPath(Dir: string): Boolean;
+begin
+  Result := Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(UserPath()) + ';') = 0;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Path, Dir: string;
+  P: Integer;
+begin
+  if CurUninstallStep <> usPostUninstall then
+    exit;
+  Dir := ExpandConstant('{app}');
+  Path := ';' + UserPath() + ';';
+  P := Pos(';' + Uppercase(Dir) + ';', Uppercase(Path));
+  if P = 0 then
+    exit;
+  Delete(Path, P, Length(Dir) + 1);
+  Path := Copy(Path, 2, Length(Path) - 2);
+  RegWriteExpandStringValue(HKCU, 'Environment', 'Path', Path);
+end;
