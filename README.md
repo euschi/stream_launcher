@@ -15,14 +15,14 @@ dà a ogni servizio:
 - uno **user agent** a scelta (predefinito, Firefox su Windows, personalizzato);
 - la sua voce nel menu applicazioni e nella **tray**.
 
-I servizi si possono **duplicare con un nome a scelta**, ad esempio Paramount+
-Italia e Paramount+ USA (con proxy USA), o due account dello stesso servizio.
+I servizi si possono **duplicare con un nome a scelta**, ad esempio un Paramount+
+italiano e uno «Paramount+ USA» con proxy USA, o due account dello stesso servizio.
 
 ### Servizi inclusi
 
 | Categoria | Servizi |
 |---|---|
-| Abbonamento | Netflix, Prime Video, Disney+, NOW, Sky Go, HBO Max, Apple TV, Paramount+ Italia, Paramount+ USA, TIMVISION, MUBI, Crunchyroll |
+| Abbonamento | Netflix, Prime Video, Disney+, NOW, Sky Go, HBO Max, Apple TV, Paramount+, TIMVISION, MUBI, Crunchyroll |
 | Sport | DAZN |
 | Gratuiti / TV | RaiPlay, Mediaset Infinity, La7, Pluto TV, YouTube |
 | Noleggio | Chili, Rakuten TV |
@@ -87,12 +87,12 @@ Da terminale:
 
 ```bash
 stream-launcher list
-stream-launcher run paramountplus-us
-stream-launcher duplicate paramountplus-us --name "Paramount+ USA 2" [--copy-profile]
+stream-launcher run paramountplus
+stream-launcher duplicate paramountplus --name "Paramount+ USA" [--copy-profile]
 stream-launcher rename netflix "Netflix famiglia"
-stream-launcher proxy paramountplus-us --type socks5 --host 1.2.3.4 --port 1080 --user io
-stream-launcher proxy paramountplus-us --off
-stream-launcher proxy-test paramountplus-us         # IP/paese di uscita, il servizio risponde?
+stream-launcher proxy paramountplus --type socks5 --host 1.2.3.4 --port 1080 --user io
+stream-launcher proxy paramountplus --off
+stream-launcher proxy-test paramountplus            # IP/paese di uscita, il servizio risponde?
 stream-launcher storage move /var/lib/stream-launcher  # runtime e profili su un disco veloce
 stream-launcher useragent primevideo windows        # default | windows | "stringa"
 stream-launcher addon netflix add amo:ublock-origin

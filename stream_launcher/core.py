@@ -759,7 +759,7 @@ OTHER_SITES = "Altri siti"
 
 def login_groups(logins: list[dict]) -> list[tuple[str, list[dict]]]:
     """Login raggruppati per servizio: i servizi installati con lo stesso dominio finiscono
-    nello stesso gruppo (es. «Paramount+ Italia · Paramount+ USA»), poi il catalogo,
+    nello stesso gruppo (es. «Paramount+ · Paramount+ USA»), poi il catalogo,
     infine «Altri siti» per le voci aggiunte a mano."""
     from .passwords import matches_domain
 
