@@ -6,8 +6,10 @@ A ogni avvio di un servizio i login del suo dominio passano dall'archivio a Fire
 
 Chrome su Linux cifra le password con AES-128-CBC; la chiave deriva (PBKDF2) dalla
 password "Chrome Safe Storage" custodita nel portachiavi GNOME (libsecret).
-Su Windows (Chrome, Edge, Brave) la chiave AES-256-GCM sta in "Local State",
-protetta con DPAPI dell'utente.
+Su Windows (Chrome, Edge, Brave) le password vecchie (v10/v11) usano una chiave
+AES-256-GCM in "Local State" protetta con DPAPI dell'utente; quelle nuove (v20,
+Chrome 127+) usano lo schema "app-bound", la cui chiave la decifra solo il servizio
+di elevazione del browser, chiamato via COM (IElevator).
 A ogni avvio di un servizio si leggono SOLO i login dei suoi domini, si decifrano
 e si consegnano a Firefox in un file temporaneo nel profilo (permessi 600): lo
 script di autoconfig del runtime li importa all'avvio e cancella subito il file.
@@ -43,6 +45,16 @@ WIN_BROWSERS = {
 }
 WIN_PROGIDS = {"ChromeHTML": "google-chrome", "ChromiumHTM": "chromium", "BraveHTML": "brave-browser", "MSEdgeHTM": "microsoft-edge"}
 LOGIN_DBS = ("Login Data For Account", "Login Data")  # account Google prima, poi locale
+
+# Chrome 127+ (e Edge, Brave) cifra le password nuove con lo schema "v20" (app-bound):
+# la chiave sta in Local State (os_crypt.app_bound_encrypted_key) protetta a livello SYSTEM,
+# e la decifra solo il servizio di elevazione del browser, esposto come oggetto COM IElevator.
+# Per ogni browser servono CLSID (la classe COM) e IID (l'interfaccia IElevator).
+ELEVATORS = {
+    "google-chrome": ("{708860E0-F641-4611-8895-7D867DD3675B}", "{463ABECF-410D-407F-8AF5-0DF35A005CC8}"),
+    "microsoft-edge": ("{1FCBE96C-1697-43AF-9140-2897C7C69767}", "{C9C2B807-7731-4F34-81B7-44FF7779522B}"),
+    "brave-browser": ("{576B31AF-6369-4B6B-8560-E4B203A97A8B}", "{F396861E-0C8E-4C71-8256-2FAE6D759CE9}"),
+}
 
 
 class PasswordError(Exception):
@@ -260,29 +272,120 @@ def _dpapi(data: bytes, protect: bool) -> bytes:
         ctypes.windll.kernel32.LocalFree(out.pbData)
 
 
+def _elevator_decrypt(desktop_id: str, blob: bytes) -> bytes:
+    """Chiave app-bound (schema v20) decifrata dal servizio di elevazione del browser.
+
+    Il servizio è un oggetto COM (IElevator) che gira come SYSTEM; chiama DecryptData,
+    che restituisce la chiave AES-256 usata per le password v20. Non serve essere
+    amministratore, ma il browser deve avere il servizio registrato (installazione
+    normale) e conviene chiuderlo prima. Solo Windows.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    guids = ELEVATORS.get(desktop_id)
+    if not guids:
+        raise PasswordError("questo browser non ha un servizio di elevazione per lo schema v20")
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                    ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+    def guid(text: str) -> GUID:
+        g = GUID()
+        ctypes.oledll.ole32.CLSIDFromString(text, ctypes.byref(g))
+        return g
+
+    ole32, oleaut32 = ctypes.oledll.ole32, ctypes.windll.oleaut32
+    oleaut32.SysAllocStringByteLen.restype = ctypes.c_void_p
+    oleaut32.SysStringByteLen.restype = ctypes.c_uint
+    oleaut32.SysStringByteLen.argtypes = [ctypes.c_void_p]
+
+    # Apartment a thread singolo. Se COM è già inizializzato nel processo (la GUI Qt lo fa),
+    # CoInitializeEx dà S_FALSE/RPC_E_CHANGED_MODE: va bene, non lo chiudiamo noi.
+    hr = ctypes.windll.ole32.CoInitializeEx(None, 0x2)  # COINIT_APARTMENTTHREADED
+    uninit = hr == 0  # S_OK: l'abbiamo inizializzato noi, tocca a noi chiuderlo
+    clsid, iid = guid(guids[0]), guid(guids[1])
+    pointer = ctypes.c_void_p()
+    bstr_in = bstr_out = None
+    try:
+        ole32.CoCreateInstance(ctypes.byref(clsid), None, 0x4,  # CLSCTX_LOCAL_SERVER
+                               ctypes.byref(iid), ctypes.byref(pointer))
+        # Impersonazione: senza di questa il servizio rifiuta la richiesta.
+        ole32.CoSetProxyBlanket(pointer, 0xFFFFFFFF, 0xFFFFFFFF, None, 0, 3,  # RPC_C_IMP_LEVEL_IMPERSONATE
+                                None, 0x40)  # EOAC_DYNAMIC_CLOAKING
+        # Vtable: QueryInterface/AddRef/Release (0-2), RunRecoveryCRXElevated (3),
+        # EncryptData (4), DecryptData (5). DecryptData(this, BSTR in, BSTR* out, DWORD* err).
+        vtable = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_void_p))[0]
+        slot = ctypes.cast(vtable, ctypes.POINTER(ctypes.c_void_p))[5]
+        decrypt_data = ctypes.WINFUNCTYPE(
+            ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.DWORD))(slot)
+        bstr_in = ctypes.c_void_p(oleaut32.SysAllocStringByteLen(blob, len(blob)))
+        out, last_error = ctypes.c_void_p(), wintypes.DWORD(0)
+        hr = decrypt_data(pointer, bstr_in, ctypes.byref(out), ctypes.byref(last_error))
+        bstr_out = out
+        if hr != 0 or not out.value:
+            raise PasswordError(f"servizio di elevazione: errore 0x{hr & 0xFFFFFFFF:08X} "
+                                f"(last_error {last_error.value})")
+        return ctypes.string_at(out.value, oleaut32.SysStringByteLen(out))
+    except OSError as e:  # oledll solleva WindowsError sugli HRESULT falliti
+        raise PasswordError(f"servizio di elevazione non raggiungibile ({e})") from e
+    finally:
+        if bstr_in:
+            oleaut32.SysFreeString(bstr_in)
+        if bstr_out:
+            oleaut32.SysFreeString(bstr_out)
+        if pointer:
+            vt = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_void_p))[0]  # rilascio via Release (slot 2)
+            release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(
+                ctypes.cast(vt, ctypes.POINTER(ctypes.c_void_p))[2])
+            release(pointer)
+        if uninit:
+            ctypes.windll.ole32.CoUninitialize()
+
+
 class WindowsDecryptor:
     def __init__(self, source: Source):
         self.key, self.problem = None, ""
+        self.app_key, self.app_problem = None, ""
         try:
             state = json.loads((source.profile_dir.parent / "Local State").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            self.problem = self.app_problem = f"Local State di {source.name} non leggibile ({e})"
+            return
+        try:
             enc = base64.b64decode(state["os_crypt"]["encrypted_key"])
             if enc[:5] != b"DPAPI":
                 raise ValueError("formato della chiave sconosciuto")
             self.key = _dpapi(enc[5:], protect=False)
-        except (OSError, KeyError, ValueError, PasswordError) as e:
+        except (KeyError, ValueError, PasswordError) as e:
             self.problem = f"chiave di {source.name} non leggibile ({e})"
+        # Chiave app-bound (v20): assente sui Chrome più vecchi, presente dal 127 in poi.
+        app_enc = state.get("os_crypt", {}).get("app_bound_encrypted_key")
+        if not app_enc:
+            self.app_problem = "nessuna chiave app-bound (v20) in Local State"
+            return
+        try:
+            data = base64.b64decode(app_enc)
+            if data[:4] != b"APPB":
+                raise ValueError("formato della chiave app-bound sconosciuto")
+            self.app_key = _elevator_decrypt(source.desktop_id, data[4:])
+        except (ValueError, PasswordError) as e:
+            self.app_problem = f"chiave app-bound di {source.name} non ottenuta ({e})"
 
     def decrypt(self, blob: bytes) -> str:
         prefix = blob[:3]
-        if prefix == b"v20":
-            raise PasswordError("cifratura legata all'app (v20) non supportata")
-        if prefix not in (b"v10", b"v11"):
+        if prefix not in (b"v10", b"v11", b"v20"):
             return _dpapi(blob, protect=False).decode("utf-8")  # vecchi Chrome: DPAPI diretto
+        key = self.app_key if prefix == b"v20" else self.key
+        if key is None:
+            raise PasswordError(self.app_problem if prefix == b"v20" else self.problem)
         from cryptography.exceptions import InvalidTag
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
         try:
-            return AESGCM(self.key).decrypt(blob[3:15], blob[15:], None).decode("utf-8")
+            return AESGCM(key).decrypt(blob[3:15], blob[15:], None).decode("utf-8")
         except InvalidTag as e:
             raise PasswordError("chiave errata o dato corrotto") from e
 
@@ -304,9 +407,12 @@ def read_logins(source: Source, domains: list[str]) -> list[dict]:
     if not domains:
         return []
     decryptor = WindowsDecryptor(source) if sys.platform == "win32" else ChromeDecryptor(source)
-    if decryptor.problem:
+    # Su Windows una delle due chiavi (classica v10/v11 o app-bound v20) può mancare senza
+    # che l'altra sia inutile: si blocca solo se non se ne può usare nessuna.
+    if decryptor.problem and (getattr(decryptor, "app_key", True) is None):
         raise PasswordError(decryptor.problem)
     found: dict[tuple[str, str], dict] = {}
+    blocked = ""  # motivo per cui una voce che corrispondeva è stata saltata (per spiegare lo 0)
     for db_name in LOGIN_DBS:
         path = source.profile_dir / db_name
         if not path.is_file():
@@ -330,7 +436,8 @@ def read_logins(source: Source, domains: list[str]) -> list[dict]:
                 continue  # a parità di sito e utente vince l'archivio dell'account Google
             try:
                 password = decryptor.decrypt(blob)
-            except (PasswordError, UnicodeDecodeError):
+            except (PasswordError, UnicodeDecodeError) as e:
+                blocked = blocked or str(e)
                 continue
             found[(origin, user)] = {
                 "origin": origin,
@@ -340,6 +447,8 @@ def read_logins(source: Source, domains: list[str]) -> list[dict]:
                 "usernameField": user_el or "",
                 "passwordField": pass_el or "",
             }
+    if not found and blocked:  # c'erano login del dominio ma nessuno decifrabile: dillo
+        raise PasswordError(blocked)
     return list(found.values())
 
 
