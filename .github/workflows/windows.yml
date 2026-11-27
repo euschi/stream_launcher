@@ -44,9 +44,7 @@ jobs:
           $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { (git describe --tags --always).TrimStart("v") }
           "VERSION = `"$version`"" | Out-File -Encoding utf8 stream_launcher/_version.py
           python windows/make_icon.py
-          pyinstaller --noconfirm --windowed --name StreamLauncher --icon windows/icon.ico --paths . `
-            --hidden-import PySide6.QtSvg --add-data "config;config" --add-data "templates;templates" `
-            stream_launcher/__main__.py
+          pyinstaller --noconfirm windows/StreamLauncher.spec
 
       - name: Test dell'eseguibile
         run: |
@@ -69,6 +67,15 @@ jobs:
           $q = Start-Process $exe -ArgumentList "settings netflix" -PassThru -Wait
           if ($q.ExitCode -ne 0) { throw "inoltro alla prima istanza fallito" }
           Stop-Process $p.Id
+          # Eseguibile di console: output nel prompt e menu interattivo da stdin
+          $cli = "dist\StreamLauncher\stream-launcher-cli.exe"
+          $out = & $cli list | Out-String
+          if ($out -notmatch "Netflix") { throw "stream-launcher-cli list senza Netflix: $out" }
+          $out = "zzz`nq`n" | & $cli menu | Out-String
+          if ($out -notmatch "1  Netflix" -or $out -notmatch "Nessun servizio corrisponde") { throw "menu interattivo errato: $out" }
+          & $cli rename netflix Netflix | Out-Host  # riscrive il collegamento partendo dalla console
+          $target = (New-Object -ComObject WScript.Shell).CreateShortcut(($lnk | Where-Object Name -eq "Netflix.lnk").FullName)
+          if ($target.TargetPath -notlike "*\StreamLauncher.exe") { throw "il collegamento deve puntare all'eseguibile con finestra: $($target.TargetPath)" }
           Write-Output "Eseguibile OK"
 
       - name: Installer (Inno Setup)
@@ -89,6 +96,15 @@ jobs:
           if (Test-Path "$env:LOCALAPPDATA\stream-launcher\firefox") { throw "l'installer non deve scaricare il runtime" }
           $n = (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Stream Launcher\*.lnk").Count
           if ($n -ne 1) { throw "voci del menu Start attese 1 (il launcher), trovate $n" }
+          $dir = Split-Path $app
+          if (-not (Test-Path "$dir\stream-launcher-cli.exe")) { throw "manca stream-launcher-cli.exe" }
+          $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          if (($userPath -split ";") -notcontains $dir) { throw "cartella dell'app non nel PATH utente: $userPath" }
+          # Disinstallazione: la cartella esce dal PATH utente
+          Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          Start-Sleep 3
+          $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          if (($userPath -split ";") -contains $dir) { throw "la disinstallazione non ha tolto la cartella dal PATH: $userPath" }
           Write-Output "Installer OK"
 
       - uses: actions/upload-artifact@v4

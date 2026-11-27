@@ -26,6 +26,7 @@ from pathlib import Path
 APP = "stream-launcher"
 IS_WIN = sys.platform == "win32"
 FROZEN = getattr(sys, "frozen", False)  # eseguibile PyInstaller (Windows)
+GUI_EXE = "StreamLauncher.exe"  # accanto c'è stream-launcher-cli.exe, la versione per il terminale
 
 
 def _env_dir(var: str, default: str) -> Path:
@@ -120,7 +121,9 @@ class LauncherError(Exception):
 def self_command(*args: str) -> list[str]:
     """Riga di comando per rilanciare il launcher (eseguibile o script) con `args`."""
     if FROZEN:
-        return [sys.executable, *args]
+        # Sempre l'eseguibile con finestra, anche quando si parte da quello di console
+        # (stream-launcher-cli.exe): collegamenti e servizi avviati non devono aprire console.
+        return [str(Path(sys.executable).with_name(GUI_EXE)), *args]
     python = Path(sys.executable)
     if IS_WIN and (python.parent / "pythonw.exe").is_file():
         python = python.parent / "pythonw.exe"  # niente finestra di console
